@@ -9,6 +9,9 @@ build/
 .pytest_cache/
 .env
 *.local.yaml
+deploy/secrets.yaml
+deploy/postgres/secret.yaml
+cluster-bot-dev-kubeconfig.yaml
 fixtures/*.json
 !fixtures/.gitkeep
 weekly_status-main/

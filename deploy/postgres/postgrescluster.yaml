@@ -1,0 +1,26 @@
+# Crunchy Postgres Operator (PGO v5) — testing cluster for weekly-status.
+# Prerequisite: PGO installed in the cluster (OperatorHub / OLM).
+# Docs: https://access.crunchydata.com/documentation/postgres-operator/latest/
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: weekly-status-db
+  labels:
+    app.kubernetes.io/name: weekly-status
+    app.kubernetes.io/component: postgres
+spec:
+  postgresVersion: 16
+  image: registry.developers.crunchydata.com/crunchydata/crunchy-postgres:ubi9-16.6-0
+  instances:
+    - name: instance1
+      replicas: 1
+      dataVolumeClaimSpec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+  users:
+    - name: weeklystatus
+      databases:
+        - weekly_status
