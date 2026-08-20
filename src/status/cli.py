@@ -13,13 +13,14 @@ from status.collectors import run_collect
 from status.config import SKILLS_DIR, get_settings
 from status.db import get_session
 from status.skills.client import SkillClient
-from status.collectors import run_collect
 from status.skills.drafter import draft_and_persist, load_fixture, run_drafter
 from status.skills.synthesizer import run_synthesizer
 
 app = typer.Typer(no_args_is_help=True, help="Weekly status pipeline CLI")
 skills_app = typer.Typer(no_args_is_help=True, help="Manage Claude Agent Skills")
+slack_app = typer.Typer(no_args_is_help=True, help="Slack bot for draft review")
 app.add_typer(skills_app, name="skills")
+app.add_typer(slack_app, name="slack")
 
 console = Console()
 
@@ -108,11 +109,44 @@ def draft(
 def send(
     person: Annotated[str, typer.Option("--person", "-p")],
     week: Annotated[str, typer.Option("--week", "-w")],
-    dry_run: Annotated[bool, typer.Option("--dry-run")] = True,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
-    """Send a draft review DM via Slack. Implemented in M3."""
+    """Send a draft review DM via Slack."""
     _dry_run_flag(dry_run)
-    console.print(f"[dim]send: person={person} week={week} (M3)[/]")
+    week_ending = _parse_week(week)
+    settings = get_settings()
+
+    if dry_run:
+        console.print(
+            f"[dim]would send draft review: person={person} week={week_ending}[/]"
+        )
+        return
+
+    if not settings.slack_bot_token:
+        console.print("[red]SLACK_BOT_TOKEN not set[/]")
+        raise typer.Exit(1)
+
+    from status.slack.send import SlackSendError, send_draft_review
+
+    try:
+        result = send_draft_review(person, week_ending, bot_token=settings.slack_bot_token)
+    except SlackSendError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    console.print_json(json.dumps(result, indent=2))
+
+
+@slack_app.command("run")
+def slack_run() -> None:
+    """Run the Slack Socket Mode handler for draft review."""
+    from status.slack.app import SlackAppError, run_socket_mode
+
+    try:
+        run_socket_mode()
+    except SlackAppError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
 
 
 @app.command(name="report")
