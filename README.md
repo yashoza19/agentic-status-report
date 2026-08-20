@@ -38,5 +38,4 @@ skills/           Claude Agent Skill definitions
 src/status/       Python pipeline
 alembic/          Database migrations
 fixtures/         Saved collector payloads for offline testing
-weekly_status-main/  Legacy synthesis commands (reference)
 ```
