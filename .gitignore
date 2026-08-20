@@ -11,3 +11,4 @@ build/
 *.local.yaml
 fixtures/*.json
 !fixtures/.gitkeep
+weekly_status-main/
