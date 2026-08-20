@@ -20,6 +20,7 @@ def build_payload(
     jira_issues: list[dict[str, Any]],
     pull_requests: list[dict[str, Any]],
     previous_entries: list[dict[str, Any]] | None = None,
+    commits: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     week_start, week_end = week_bounds(week_ending)
     return {
@@ -28,5 +29,6 @@ def build_payload(
         "week_end": week_end.isoformat(),
         "jira_issues": jira_issues,
         "pull_requests": pull_requests,
+        "commits": commits or [],
         "previous_entries": previous_entries or [],
     }

@@ -17,7 +17,7 @@ def test_format_entry_text_includes_state_and_outcome() -> None:
     entry = StatusEntry(
         entry_id=uuid4(),
         week_ending=date(2026, 8, 14),
-        person_id="yoza",
+        person_id="pilot",
         epic_key="EET-5493",
         epic_name_snapshot="OpenShift Cluster Management Bot",
         project="EET",
@@ -34,15 +34,15 @@ def test_build_draft_blocks_includes_confirm_button() -> None:
     entry = StatusEntry(
         entry_id=uuid4(),
         week_ending=date(2026, 8, 14),
-        person_id="yoza",
+        person_id="pilot",
         project="EET",
         state="shipped",
         outcome="Done.",
         source="drafted",
     )
     blocks = build_draft_blocks(
-        person_id="yoza",
-        display_name="Yash",
+        person_id="pilot",
+        display_name="Pilot User",
         week_ending=date(2026, 8, 14),
         entries=[entry],
         flags=[],
@@ -55,8 +55,8 @@ def test_build_draft_blocks_includes_confirm_button() -> None:
 
 def test_build_draft_blocks_confirmed_omits_actions() -> None:
     blocks = build_draft_blocks(
-        person_id="yoza",
-        display_name="Yash",
+        person_id="pilot",
+        display_name="Pilot User",
         week_ending=date(2026, 8, 14),
         entries=[],
         flags=[],
@@ -77,14 +77,14 @@ def test_confirm_draft_entries_sets_confirmed_at() -> None:
 
     rows = confirm_draft_entries(
         session,
-        "yoza",
+        "pilot",
         date(2026, 8, 14),
-        confirmed_by="yoza",
+        confirmed_by="pilot",
     )
 
     assert len(rows) == 1
     assert entry.confirmed_at is not None
-    assert entry.confirmed_by == "yoza"
+    assert entry.confirmed_by == "pilot"
     session.add.assert_called_once()
 
 
@@ -92,7 +92,7 @@ def test_record_draft_sent_creates_participation() -> None:
     session = MagicMock()
     session.get.return_value = None
 
-    row = record_draft_sent(session, "yoza", date(2026, 8, 14))
+    row = record_draft_sent(session, "pilot", date(2026, 8, 14))
 
     assert isinstance(row, Participation)
     assert row.status == "sent"

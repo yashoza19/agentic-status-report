@@ -136,7 +136,7 @@ Use the same user/password from the PGO secret:
 ```bash
 psql "postgresql://weeklystatus:<password>@localhost:5432/weekly_status" <<'SQL'
 INSERT INTO person (person_id, display_name, slack_user_id, jira_account_id, github_login)
-VALUES ('yoza', 'Yash Oza', 'UXXXXXXXX', '712020:62c4c79e-1f59-45ed-a822-1c995df63024', 'yashoza19')
+VALUES ('pilot', 'Pilot User', 'UXXXXXXXX', '<jira-account-id>', 'pilot-user')
 ON CONFLICT (person_id) DO UPDATE SET
   slack_user_id = EXCLUDED.slack_user_id,
   jira_account_id = EXCLUDED.jira_account_id,
@@ -176,9 +176,9 @@ export KUBECONFIG=/path/to/kubeconfig
 In another terminal:
 
 ```bash
-status collect -p yoza --week 2026-08-14
-status draft   -p yoza --week 2026-08-14
-status send    -p yoza --week 2026-08-14
+status collect -p pilot --week 2026-08-14
+status draft   -p pilot --week 2026-08-14
+status send    -p pilot --week 2026-08-14
 ```
 
 `status draft` only opens Postgres at the end and retries for ~24s if the tunnel

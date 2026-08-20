@@ -12,9 +12,10 @@ def test_week_bounds_friday() -> None:
 
 def test_build_payload_shape() -> None:
     week_ending = date(2026, 8, 14)
-    payload = build_payload("yash", week_ending, [], [])
-    assert payload["person"] == "yash"
+    payload = build_payload("pilot", week_ending, [], [])
+    assert payload["person"] == "pilot"
     assert payload["week_start"] == "2026-08-08"
     assert payload["week_end"] == "2026-08-14"
     assert payload["jira_issues"] == []
     assert payload["pull_requests"] == []
+    assert payload["commits"] == []
