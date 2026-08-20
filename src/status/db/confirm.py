@@ -43,6 +43,20 @@ def latest_unconfirmed_week(session: Session, person_id: str) -> date | None:
     return session.scalars(stmt).first()
 
 
+def latest_confirmed_week(session: Session, person_id: str) -> date | None:
+    stmt = (
+        select(StatusEntry.week_ending)
+        .where(
+            StatusEntry.person_id == person_id,
+            StatusEntry.is_current.is_(True),
+            StatusEntry.confirmed_at.is_not(None),
+        )
+        .order_by(desc(StatusEntry.week_ending))
+        .limit(1)
+    )
+    return session.scalars(stmt).first()
+
+
 def record_draft_sent(session: Session, person_id: str, week_ending: date) -> Participation:
     now = datetime.now(timezone.utc)
     row = session.get(Participation, (person_id, week_ending))
