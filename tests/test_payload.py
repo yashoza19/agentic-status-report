@@ -18,3 +18,4 @@ def test_build_payload_shape() -> None:
     assert payload["week_end"] == "2026-08-14"
     assert payload["jira_issues"] == []
     assert payload["pull_requests"] == []
+    assert payload["commits"] == []

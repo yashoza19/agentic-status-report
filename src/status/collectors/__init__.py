@@ -73,6 +73,7 @@ def run_collect(
 
     jira_issues: list[dict] = []
     pull_requests: list[dict] = []
+    commits: list[dict] = []
 
     if person.jira_account_id:
         try:
@@ -88,7 +89,9 @@ def run_collect(
 
     if person.github_login:
         try:
-            pull_requests = collect_github_activity(person.github_login, week_start, week_end)
+            github_activity = collect_github_activity(person.github_login, week_start, week_end)
+            pull_requests = github_activity["pull_requests"]
+            commits = github_activity["commits"]
         except GitHubCollectorError as exc:
             errors.append(f"github: {exc}")
             log.error("github collection failed for %s: %s", person.person_id, exc)
@@ -104,6 +107,7 @@ def run_collect(
         jira_issues,
         pull_requests,
         previous_entries,
+        commits=commits,
     )
     if errors:
         payload["collection_errors"] = errors

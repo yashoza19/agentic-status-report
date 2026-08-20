@@ -44,6 +44,11 @@ You receive a JSON payload:
       "state": "merged | open | draft", "merged_at": "ISO-8601 | null",
       "linked_issue_keys": ["AIPLAT-231"] }
   ],
+  "commits": [
+    { "sha": "string", "url": "string", "summary": "first line of commit message",
+      "message": "string", "repo": "owner/repo", "committed_at": "ISO-8601",
+      "linked_issue_keys": ["AIPLAT-231"] }
+  ],
   "previous_entries": [ "last 3 weeks of confirmed entries, same schema as output" ]
 }
 ```

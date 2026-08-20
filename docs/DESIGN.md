@@ -455,6 +455,7 @@ Migrations via Alembic.
   "week_end": "YYYY-MM-DD",
   "jira_issues": [{ "key": "...", "summary": "...", "epic_key": "...", "transitions": [], "comments": [] }],
   "pull_requests": [{ "url": "...", "title": "...", "linked_issue_keys": [] }],
+  "commits": [{ "url": "...", "summary": "...", "repo": "...", "linked_issue_keys": [] }],
   "previous_entries": []
 }
 ```

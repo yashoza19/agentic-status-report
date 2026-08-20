@@ -47,12 +47,8 @@ class Settings(BaseSettings):
         alias="GITHUB_LOGIN",
         description="Default GitHub username for collect when not in the person table",
     )
-    github_repos: str = Field(
-        default="",
-        alias="GITHUB_REPOS",
-        description="Comma-separated owner/repo list to scope PR search",
-    )
     github_max_prs: int = Field(default=50, alias="GITHUB_MAX_PRS")
+    github_max_commits: int = Field(default=100, alias="GITHUB_MAX_COMMITS")
 
     jira_epic_field: str | None = Field(
         default=None,
@@ -71,10 +67,6 @@ class Settings(BaseSettings):
     @property
     def pilot_person_id_list(self) -> list[str]:
         return [p.strip() for p in self.pilot_person_ids.split(",") if p.strip()]
-
-    @property
-    def github_repo_list(self) -> list[str]:
-        return [r.strip() for r in self.github_repos.split(",") if r.strip()]
 
     @property
     def jira_project_list(self) -> list[str]:
