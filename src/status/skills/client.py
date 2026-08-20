@@ -101,7 +101,32 @@ class SkillClient:
 
         container: dict[str, Any] = {"skills": [skill.as_container_entry()]}
         response = self._create(messages, container)
+        response = self._resume_to_completion(messages, response, skill)
 
+        try:
+            return self._parse(response, schema, skill)
+        except SkillError as exc:
+            if "no text output" not in str(exc):
+                raise
+            log.warning("%s returned no text; requesting JSON-only follow-up", skill.skill_id)
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Reply with ONLY the final JSON object as plain text in a text block. "
+                        "No code execution, markdown fences, or commentary."
+                    ),
+                }
+            )
+            response = self._create(
+                messages,
+                {"id": response.container.id, "skills": [skill.as_container_entry()]},
+            )
+            response = self._resume_to_completion(messages, response, skill)
+            return self._parse(response, schema, skill)
+
+    def _resume_to_completion(self, messages: list[dict[str, Any]], response, skill: SkillRef):
         for _ in range(MAX_PAUSE_RESUMES):
             if response.stop_reason != "pause_turn":
                 break
@@ -112,8 +137,7 @@ class SkillClient:
             )
         else:
             raise SkillError(f"{skill.skill_id} did not settle after {MAX_PAUSE_RESUMES} resumes")
-
-        return self._parse(response, schema, skill)
+        return response
 
     def _create(self, messages: list[dict[str, Any]], container: dict[str, Any]):
         try:
@@ -135,6 +159,8 @@ class SkillClient:
         ).strip()
 
         if not text:
+            block_types = [getattr(block, "type", None) for block in response.content]
+            log.error("%s returned no text output; blocks=%s stop_reason=%s", skill.skill_id, block_types, response.stop_reason)
             raise SkillError(f"{skill.skill_id} returned no text output")
 
         cleaned = FENCE_RE.sub("", text).strip()

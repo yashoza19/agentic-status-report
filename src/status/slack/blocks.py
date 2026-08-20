@@ -70,6 +70,8 @@ def build_draft_blocks(
     confirmed: bool = False,
 ) -> list[dict[str, Any]]:
     week_label = week_ending.strftime("%b %d, %Y")
+    status_label = "Confirmed status" if confirmed else "Draft status"
+    review_hint = "Saved for this week." if confirmed else "Review each entry below."
     blocks: list[dict[str, Any]] = [
         {
             "type": "header",
@@ -79,7 +81,7 @@ def build_draft_blocks(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"Draft status for *{display_name}*. Review each entry below.",
+                "text": f"{status_label} for *{display_name}*. {review_hint}",
             },
         },
     ]

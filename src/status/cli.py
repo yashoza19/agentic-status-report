@@ -95,8 +95,7 @@ def draft(
         console.print_json(result.model_dump_json(indent=2))
         return
 
-    with get_session() as session:
-        run_result = draft_and_persist(session, payload, dry_run=False, persist=True)
+    run_result = draft_and_persist(payload, dry_run=False, persist=True)
 
     output = run_result.draft.model_dump()
     output["prompt_version"] = run_result.prompt_version

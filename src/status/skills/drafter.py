@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from status.config import get_settings
+from status.db import get_session
 from status.db.draft import persist_draft_output
 from status.skills.client import SkillClient, SkillError, SkillRef
 from status.skills.schemas import DraftOutput
@@ -20,7 +23,7 @@ log = logging.getLogger(__name__)
 
 DRAFTER_INSTRUCTION = (
     "Use the weekly-status-drafter skill on the payload below. "
-    "Return only the JSON output defined in the skill."
+    "Return only the JSON output defined in the skill as plain text in your reply."
 )
 
 
@@ -99,13 +102,53 @@ def run_drafter(payload: dict[str, Any], *, dry_run: bool = False) -> DraftOutpu
     return _empty_draft(payload, flags=[flag])
 
 
+def _persist_with_retry(
+    draft: DraftOutput,
+    *,
+    prompt_version: str,
+    collection_errors: list[str],
+    max_attempts: int = 8,
+    retry_delay_seconds: float = 3.0,
+) -> tuple[list[str], int]:
+    """Write draft rows after skill invocation; reconnect if port-forward dropped."""
+    last_error: OperationalError | None = None
+    for attempt in range(max_attempts):
+        try:
+            with get_session() as session:
+                rows, superseded_count = persist_draft_output(
+                    session,
+                    draft,
+                    prompt_version=prompt_version,
+                    collection_errors=collection_errors,
+                )
+                entry_ids = [str(row.entry_id) for row in rows]
+                return entry_ids, superseded_count
+        except OperationalError as exc:
+            last_error = exc
+            if attempt >= max_attempts - 1:
+                break
+            log.warning(
+                "persist attempt %s/%s failed (%s); retrying in %ss "
+                "(keep port-forward running or restart scripts/port-forward-db.sh)",
+                attempt + 1,
+                max_attempts,
+                exc,
+                retry_delay_seconds,
+            )
+            time.sleep(retry_delay_seconds)
+
+    assert last_error is not None
+    raise last_error
+
+
 def draft_and_persist(
-    session: Session,
     payload: dict[str, Any],
     *,
     dry_run: bool = False,
     persist: bool = True,
+    session: Session | None = None,
 ) -> DraftRunResult:
+    """Run the drafter skill, then persist — DB is touched only at the end."""
     settings = get_settings()
     draft = run_drafter(payload, dry_run=dry_run)
 
@@ -126,15 +169,23 @@ def draft_and_persist(
         )
 
     collection_errors = list(payload.get("collection_errors") or [])
-    rows, superseded_count = persist_draft_output(
-        session,
-        draft,
-        prompt_version=prompt_version,
-        collection_errors=collection_errors,
-    )
+    if session is not None:
+        rows, superseded_count = persist_draft_output(
+            session,
+            draft,
+            prompt_version=prompt_version,
+            collection_errors=collection_errors,
+        )
+        persisted_entry_ids = [str(row.entry_id) for row in rows]
+    else:
+        persisted_entry_ids, superseded_count = _persist_with_retry(
+            draft,
+            prompt_version=prompt_version,
+            collection_errors=collection_errors,
+        )
     return DraftRunResult(
         draft=draft,
         prompt_version=prompt_version,
-        persisted_entry_ids=[str(row.entry_id) for row in rows],
+        persisted_entry_ids=persisted_entry_ids,
         superseded_count=superseded_count,
     )
