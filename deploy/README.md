@@ -9,7 +9,8 @@ Closes [issue #6](https://github.com/yashoza19/agentic-status-report/issues/6).
 
 ## Prerequisites
 
-1. **Postgres** reachable from the cluster; schema applied:
+1. **Postgres** reachable from the cluster; schema applied. For a quick in-cluster DB,
+   see [postgres/README.md](postgres/README.md).
 
    ```bash
    alembic upgrade head
@@ -21,7 +22,7 @@ Closes [issue #6](https://github.com/yashoza19/agentic-status-report/issues/6).
    - Socket Mode enabled
    - Bot scopes: `chat:write`, `im:write`, `im:history`, `users:read`, `commands`
    - Interactivity enabled (no request URL with Socket Mode)
-   - Slash command: `/status`
+   - Slash command: `/weekly-status` (Slack reserves `/status`)
 
 4. **OpenShift** namespace and pull secret if using a private registry.
 
@@ -31,8 +32,9 @@ Closes [issue #6](https://github.com/yashoza19/agentic-status-report/issues/6).
 |------|---------|
 | `Dockerfile` | Application image (bot + future CronJobs) |
 | `deployment.yaml` | Slack bot Deployment (1 replica) |
-| `secrets.example.yaml` | Secret template — copy, fill, never commit real values |
+| `secrets.example.yaml` | App Secret template — copy, fill, never commit real values |
 | `job-collect-draft-send.yaml` | Optional one-off smoke test Job |
+| `postgres/` | Crunchy PGO `PostgresCluster` + migrate Job — see [postgres/README.md](postgres/README.md) |
 
 ## Build and push
 
@@ -109,7 +111,7 @@ While the bot Deployment is running, seed a draft with a one-off Job:
    oc logs -f job/weekly-status-collect-draft-send
    ```
 
-3. In Slack: open the DM, click **Looks right**, or run `/status`.
+3. In Slack: open the DM, click **Looks right**, or run `/weekly-status`.
 4. Verify in Postgres: `status_entry.confirmed_at` is set.
 
 Alternatively, run the same commands locally against the cluster database while the

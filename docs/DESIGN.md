@@ -2,7 +2,7 @@
 
 **Status:** Approved for implementation  
 **Owner:** Yash Oza  
-**Last updated:** 2026-08-19
+**Last updated:** 2026-08-20
 
 ---
 
@@ -106,7 +106,7 @@ The synthesizer skill preserves all formatting and categorization rules from `fo
 
 ## 5. Architecture
 
-Five runtime components, each invocable from the CLI.
+Five runtime components, each invocable from the CLI. **OpenShift deployment is phased:** the Slack bot ships in M3.5; CronJob-based scheduler ships in M6 (see §5.6).
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
@@ -120,6 +120,13 @@ Five runtime components, each invocable from the CLI.
 │  CronJobs   │     │ Claude Skill│     │  Postgres   │
 └─────────────┘     └─────────────┘     └─────────────┘
 ```
+
+| Component | OpenShift workload | Milestone |
+|---|---|---|
+| slackbot | `Deployment` (1 replica, `status slack run`) | M3.5 |
+| collector, drafter, send | CronJob or manual `oc` Job | M6 (automated) |
+| synthesizer | CronJob (`lock-and-report`) | M6 |
+| ledger | Postgres (external or in-cluster) | M0+ |
 
 ### 5.1 Collector
 
@@ -161,20 +168,31 @@ Five runtime components, each invocable from the CLI.
 
 **Responsibility:** Deliver drafts; capture confirmations and edits.
 
-Long-lived Bolt app via Socket Mode (no ingress).
+Long-lived Bolt app via **Socket Mode** (outbound WebSocket to Slack — **no public URL or ingress required**). Suitable for OpenShift clusters without inbound routes.
+
+**Implementation status:**
+
+| Capability | Milestone | Status |
+|---|---|---|
+| Send draft DM (`status send`) | M3 | Implemented |
+| **Looks right** → sets `confirmed_at` | M3 | Implemented |
+| `/weekly-status` slash command | M3 | Implemented |
+| Socket Mode bot (`status slack run`) | M3 | Implemented (local); OpenShift Deployment in M3.5 |
+| **Edit** modal + `drafted_edited` revisions | M4 | Stub only (button shows placeholder) |
+| **Regenerate** + re-run drafter | M4 | Stub only (button shows placeholder) |
 
 **Message shape:**
-- Read-only draft rendering with status pills (`shipped`, `slipped`, `quiet`, etc.)
+- Read-only draft rendering with status labels (`shipped`, `progressing`, `slipped`, etc.)
 - Buttons: **Looks right** (primary), **Edit**, **Regenerate**
 - Gap flags as highlighted banners
 
 **Looks right:** Mark entries confirmed, update message to compact confirmed state.
 
-**Edit:** Modal with one field per epic, drop checkboxes, unticketed work field, leadership asks field. Changed entries → `source = 'drafted_edited'` with new revision.
+**Edit (M4):** Modal with one field per epic, drop checkboxes, unticketed work field, leadership asks field. Changed entries → `source = 'drafted_edited'` with new revision.
 
-**Regenerate:** Modal with reason select; re-run drafter; replace message.
+**Regenerate (M4):** Modal with reason select; re-run drafter; replace message.
 
-**Slash command:** `/status` pulls current week's draft on demand.
+**Slash command:** `/weekly-status` pulls the latest unconfirmed draft on demand; `/weekly-status 2026-08-14` targets a specific week. (`/status` is reserved by Slack.)
 
 **Critical Slack constraints:**
 1. Ack interactivity within 3 seconds; work in background task
@@ -212,18 +230,200 @@ Long-lived Bolt app via Socket Mode (no ingress).
 - Every `ask` from ledger appears in decisions section verbatim or near-verbatim
 - Omit rather than pad quiet projects
 
-### 5.5 Scheduler
+### 5.5 Scheduler (CronJobs)
 
-OpenShift CronJobs:
+Weekly automation runs as **OpenShift CronJobs** in the same namespace as the Slack bot. Each job is a one-shot pod that invokes the same CLI used locally.
 
-| Job | Schedule | Action |
+| Job | Schedule | CLI action |
 |---|---|---|
-| `collect-and-draft` | Fri 08:30 | collector + drafter for all active people |
-| `send-drafts` | Fri 09:00 | slackbot sends DMs |
-| `nudge` | Fri 14:00 | remind unconfirmed |
-| `lock-and-report` | Mon 09:00 | expire unconfirmed, run synthesizer, deliver |
+| `collect-and-draft` | Fri 08:30 | `status collect` + `status draft` for all active people |
+| `send-drafts` | Fri 09:00 | `status send` for all active people |
+| `nudge` | Fri 14:00 | remind unconfirmed (M6) |
+| `lock-and-report` | Mon 09:00 | expire unconfirmed, `status report`, deliver to channel |
 
 **Cutoff:** At Monday 09:00, mark unconfirmed participation `expired` and generate from what exists. Do not block on stragglers.
+
+CronJobs depend on M5 (synthesizer) for `lock-and-report`. Until then, run collect/draft/send manually or via ad-hoc CronJobs.
+
+### 5.6 Deployment strategy (OpenShift)
+
+Deployment is **split across two milestones** so the Slack bot can be tested in-cluster before full weekly automation exists.
+
+| Phase | Milestone | What ships |
+|---|---|---|
+| **Bot only** | M3.5 | `Dockerfile`, Slack bot `Deployment`, `Secret`; manual `status collect` / `status draft` / `status send` |
+| **Full automation** | M6 | `CronJob` manifests for the Friday/Monday schedule; alerts on token failures |
+
+#### Runtime topology
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ OpenShift namespace (e.g. weekly-status)                      │
+│                                                               │
+│  Deployment: weekly-status-slack-bot   (M3.5, replicas: 1)   │
+│    command: status slack run                                  │
+│    Socket Mode → outbound WSS to Slack (no Route/Ingress)     │
+│                                                               │
+│  CronJob: collect-and-draft            (M6, Fri 08:30)        │
+│  CronJob: send-drafts                  (M6, Fri 09:00)        │
+│  CronJob: nudge                        (M6, Fri 14:00)        │
+│  CronJob: lock-and-report              (M6, Mon 09:00)        │
+│                                                               │
+│  Secret: weekly-status-secrets         (see deploy/)          │
+│  Postgres                              (in-cluster or external)│
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Why Socket Mode:** Slack events and slash commands arrive over a persistent WebSocket initiated by the pod. The cluster does not need a public endpoint, TLS certificate, or Slack request URL configuration for interactivity.
+
+**Network egress required:**
+
+| Workload | Destinations |
+|---|---|
+| Slack bot (`status slack run`) | `wss://` Slack Socket Mode, Slack Web API |
+| CronJob `collect-and-draft` | Jira, GitHub, Anthropic (Skills API), Postgres |
+| CronJob `send-drafts` | Slack Web API, Postgres |
+| CronJob `lock-and-report` | Anthropic, Slack, Postgres |
+
+#### Prerequisites
+
+**1. Slack app** ([api.slack.com/apps](https://api.slack.com/apps))
+
+| Setting | Value |
+|---|---|
+| Socket Mode | Enabled |
+| Bot token scopes | `chat:write`, `im:write`, `im:history`, `users:read`, `commands` |
+| Interactivity | Enabled (no request URL when using Socket Mode) |
+| Slash command | `/weekly-status` — no request URL |
+
+Install the app to the workspace. Record:
+
+- `SLACK_BOT_TOKEN` — `xoxb-…`
+- `SLACK_APP_TOKEN` — `xapp-…` (connections scope)
+
+**2. Postgres**
+
+- Run `alembic upgrade head` against the target database.
+- Each pilot user needs a `person` row with `slack_user_id` (Slack member ID, e.g. `U…`).
+
+**3. Secrets**
+
+Template: `deploy/secrets.example.yaml`. Minimum for Slack bot testing:
+
+```yaml
+DATABASE_URL: postgresql+psycopg://...
+SLACK_BOT_TOKEN: xoxb-...
+SLACK_APP_TOKEN: xapp-...
+```
+
+Full pipeline also requires Jira, GitHub, Anthropic, and skill IDs (see §10).
+
+**4. Container image (M3.5)**
+
+Single image used by both the long-running bot and CronJobs:
+
+```dockerfile
+# Planned — deploy/Dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src/ src/
+COPY skills/ skills/
+COPY alembic/ alembic/
+COPY alembic.ini .
+RUN pip install -e ".[slack]"
+CMD ["status", "slack", "run"]
+```
+
+CronJob pods override `command` / `args` (e.g. `["status", "collect", …]`).
+
+**5. OpenShift manifests (planned)**
+
+| File | Purpose | Milestone |
+|---|---|---|
+| `deploy/Dockerfile` | Application image | M3.5 |
+| `deploy/deployment.yaml` | Slack bot Deployment (1 replica) | M3.5 |
+| `deploy/secrets.example.yaml` | Secret template (exists) | M3.5 |
+| `deploy/cronjobs.yaml` | Weekly CronJobs | M6 |
+
+Example bot Deployment (illustrative):
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weekly-status-slack-bot
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: bot
+          image: <registry>/weekly-status:<tag>
+          command: ["status", "slack", "run"]
+          envFrom:
+            - secretRef:
+                name: weekly-status-secrets
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+```
+
+No `Service` or `Route` is required for the bot.
+
+#### Local / workspace testing (before OpenShift)
+
+Use this flow to validate M3 end-to-end on a laptop:
+
+1. **Configure Slack app** — Socket Mode, scopes, install to workspace; copy tokens to `.env`.
+2. **Postgres** — `alembic upgrade head`; insert person with `slack_user_id`:
+
+   ```sql
+   INSERT INTO person (person_id, display_name, slack_user_id, jira_account_id, github_login)
+   VALUES ('yoza', 'Yash Oza', 'UXXXXXXXX', '<jira-account-id>', 'yashoza19');
+   ```
+
+   Slack member ID: profile → ⋮ → **Copy member ID**.
+
+3. **Seed a draft:**
+
+   ```bash
+   pip install -e ".[slack]"
+   status collect -p yoza --week 2026-08-14
+   status draft -p yoza --week 2026-08-14
+   ```
+
+4. **Run the bot:**
+
+   ```bash
+   status slack run
+   ```
+
+5. **Send the DM** (separate terminal or after backgrounding the bot):
+
+   ```bash
+   status send -p yoza --week 2026-08-14
+   ```
+
+   Or in Slack: `/weekly-status` or `/weekly-status 2026-08-14`.
+
+6. **Confirm** — click **Looks right**; verify `status_entry.confirmed_at` is set in Postgres.
+
+#### OpenShift testing (M3.5)
+
+1. Build and push image to cluster-accessible registry.
+2. Create namespace; apply Secret from `secrets.example.yaml` (via sealed-secrets or vault injection in prod).
+3. Apply `deployment.yaml`; confirm pod logs show Socket Mode connected.
+4. Run a one-off Job or `oc exec` to invoke `status collect` / `status draft` / `status send` until CronJobs exist.
+5. Confirm in Slack and Postgres as in local testing.
+
+#### Operational notes
+
+- **Single replica** for the Slack bot — multiple replicas would duplicate Socket Mode connections.
+- **CronJobs are idempotent** where possible (`collect`/`draft` supersede unconfirmed drafts; `send` can be re-run).
+- **Secrets rotation** — update Secret and roll the Deployment; bot reconnects on restart.
+- **POC safety rail** — `PILOT_PERSON_IDS` limits who receives DMs until the team is ready to go wide.
 
 ---
 
@@ -395,22 +595,25 @@ agentic-status-report/
   fixtures/
   tests/
   deploy/
-    cronjobs.yaml
-    deployment.yaml
-    secrets.example.yaml
-  weekly_status-main/         # reference; synthesis rules ported to skill
+    Dockerfile                  # M3.5
+    deployment.yaml             # M3.5 — Slack bot Deployment
+    cronjobs.yaml               # M6 — weekly CronJobs
+    secrets.example.yaml        # Secret template
+  weekly_status-main/         # local reference only (gitignored); synthesis rules ported to skill
   files/                      # original POC artifacts
   pyproject.toml
   README.md
 ```
 
-**CLI commands (all support `--dry-run`):**
+**CLI commands (all support `--dry-run` where applicable):**
 
 ```bash
-status collect --person yash --week 2026-08-14 --save-fixture
-status draft   --fixture fixtures/yash-2026-08-14.json --dry-run
-status send    --person yash --week 2026-08-14
-status report  --week 2026-08-14 --dry-run
+status collect --person yoza --week 2026-08-14 --save-fixture
+status draft   --fixture fixtures/yoza-2026-08-14.json --dry-run
+status draft   --person yoza --week 2026-08-14
+status send    --person yoza --week 2026-08-14
+status slack run                              # long-lived Socket Mode bot (M3)
+status report  --week 2026-08-14 --dry-run    # M5
 status skills publish --skill drafter
 status skills list
 ```
@@ -442,10 +645,13 @@ status skills list
 | M0 | Scaffolding | `status --help` works; schema applies to empty DB |
 | M1 | Collector | Real person's week matches human judgment; 5+ fixtures |
 | M2 | Drafter | Valid entries from fixtures; idempotent re-runs |
-| M3 | Slack confirm | One person confirms; ledger shows `confirmed_at` |
+| M3 | Slack confirm | **Looks right** confirms; ledger shows `confirmed_at`; `status slack run` works locally |
+| M3.5 | OpenShift bot | `Dockerfile` + `deployment.yaml`; bot runs in cluster; manual collect/draft/send |
 | M4 | Edit/regenerate | Edits create revisions; originals preserved |
 | M5 | Synthesizer | Report posted; audit chain populated |
-| M6 | Scheduling | Full week unattended; broken token alerts |
+| M6 | Scheduling | CronJobs for full week unattended; broken token alerts |
+
+**Deployment vs automation:** M3.5 ships the long-lived Slack bot to OpenShift so the team can test confirm flows in the real workspace without waiting for M5/M6. M6 adds CronJobs only — the bot Deployment from M3.5 stays unchanged.
 
 **M1 prerequisite:** Run `daily-summary` plugin for one week; output must be recognizable. If thin, fix Jira hygiene before building collector.
 
@@ -469,7 +675,8 @@ status skills list
 - Slack DM review
 - Postgres ledger
 - Weekly synthesis to Slack channel
-- Manual CLI trigger for every stage
+- Manual CLI trigger for every stage during M3–M5
+- OpenShift Deployment for Slack bot (M3.5) before full CronJob automation (M6)
 
 ### Out of scope (Phase 2)
 - Calendar / Google Docs signals
@@ -512,6 +719,9 @@ status skills list
 - **Golden tests on JSON shape**, not prose wording
 - **Unit tests on revision logic** (`is_current` flip, unique constraints)
 - **Manual test set before M3:** normal week, meeting-heavy week, messiest Jira on team
+- **Slack integration (M3):** local `status slack run` + `status send`; verify **Looks right** in Postgres
+- **OpenShift smoke test (M3.5):** bot pod connects Socket Mode; one-off collect/draft/send Job; confirm in Slack
+- **End-to-end unattended (M6):** CronJobs fire on schedule; alerts on auth failures
 
 ---
 
