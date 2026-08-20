@@ -12,7 +12,7 @@ def test_supersede_unconfirmed_drafts_marks_rows_not_current() -> None:
     row = MagicMock(is_current=True, confirmed_at=None)
     session.scalars.return_value.all.return_value = [row]
 
-    count = supersede_unconfirmed_drafts(session, "yoza", date(2026, 8, 14))
+    count = supersede_unconfirmed_drafts(session, "pilot", date(2026, 8, 14))
 
     assert count == 1
     assert row.is_current is False
@@ -25,7 +25,7 @@ def test_persist_draft_output_creates_status_entries() -> None:
     session.scalars.return_value.all.return_value = []
 
     draft = DraftOutput(
-        person="yoza",
+        person="pilot",
         week_ending="2026-08-14",
         entries=[
             DraftEntry(
@@ -34,7 +34,7 @@ def test_persist_draft_output_creates_status_entries() -> None:
                 epic_name="OpenShift Cluster Management Bot",
                 state="progressing",
                 outcome="Shipped destroy and scheduling features.",
-                evidence=["EET-5500", "https://github.com/yashoza19/opdev-cluster-bot/pull/26"],
+                evidence=["EET-5500", "https://github.com/example-org/example-repo/pull/26"],
                 confidence="high",
             )
         ],

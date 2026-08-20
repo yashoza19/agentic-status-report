@@ -14,10 +14,10 @@ from status.collectors.jira import build_jql, normalize_jira_issue
 
 
 def test_build_jql_email_skips_commented_by() -> None:
-    jql = build_jql("yoza@redhat.com", date(2026, 8, 8), date(2026, 8, 14))
+    jql = build_jql("user@example.com", date(2026, 8, 8), date(2026, 8, 14))
     assert "commentedBy" not in jql
-    assert 'assignee = "yoza@redhat.com"' in jql
-    assert 'reporter = "yoza@redhat.com"' in jql
+    assert 'assignee = "user@example.com"' in jql
+    assert 'reporter = "user@example.com"' in jql
 
 
 def test_build_jql_account_id_includes_contributor_fields() -> None:
@@ -99,8 +99,8 @@ def test_commit_summary_uses_subject_line() -> None:
 def test_normalize_commit_includes_summary_and_repo() -> None:
     item = {
         "sha": "abc123",
-        "html_url": "https://github.com/yashoza19/opdev-cluster-bot/commit/abc123",
-        "repository": {"full_name": "yashoza19/opdev-cluster-bot"},
+        "html_url": "https://github.com/example-org/example-repo/commit/abc123",
+        "repository": {"full_name": "example-org/example-repo"},
         "commit": {
             "message": "EET-5001: add destroy command\n\nAlso fix tests.",
             "committer": {"date": "2026-08-11T12:00:00Z"},
@@ -109,7 +109,7 @@ def test_normalize_commit_includes_summary_and_repo() -> None:
     normalized = _normalize_commit(item, date(2026, 8, 8), date(2026, 8, 14))
     assert normalized is not None
     assert normalized["summary"] == "EET-5001: add destroy command"
-    assert normalized["repo"] == "yashoza19/opdev-cluster-bot"
+    assert normalized["repo"] == "example-org/example-repo"
     assert normalized["linked_issue_keys"] == ["EET-5001"]
 
 
@@ -128,7 +128,7 @@ def test_normalize_commit_filters_outside_window() -> None:
 
 def test_build_payload_includes_commits() -> None:
     payload = build_payload(
-        "yoza",
+        "pilot",
         date(2026, 8, 14),
         [],
         [],
@@ -173,7 +173,7 @@ def test_collect_github_activity_searches_all_repos() -> None:
 
     with patch("status.collectors.github.get_json", side_effect=[pr_response, commit_response]) as mock_get:
         activity = collect_github_activity(
-            "yashoza19",
+            "pilot-user",
             date(2026, 8, 8),
             date(2026, 8, 14),
             settings=settings,
@@ -187,6 +187,6 @@ def test_collect_github_activity_searches_all_repos() -> None:
     commit_query = mock_get.call_args_list[1][0][0]
     assert "repo%3A" not in pr_query
     assert "repo%3A" not in commit_query
-    assert "author%3Ayashoza19" in pr_query
+    assert "author%3Apilot-user" in pr_query
     assert "committer-date%3A2026-08-08..2026-08-14" in commit_query
-    assert "author%3Ayashoza19" in commit_query
+    assert "author%3Apilot-user" in commit_query

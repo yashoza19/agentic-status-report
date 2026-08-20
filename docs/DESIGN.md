@@ -1,7 +1,6 @@
 # Agentic Weekly Status Pipeline — Design Document
 
 **Status:** Approved for implementation  
-**Owner:** Yash Oza  
 **Last updated:** 2026-08-20
 
 ---
@@ -381,7 +380,7 @@ Use this flow to validate M3 end-to-end on a laptop:
 
    ```sql
    INSERT INTO person (person_id, display_name, slack_user_id, jira_account_id, github_login)
-   VALUES ('yoza', 'Yash Oza', 'UXXXXXXXX', '<jira-account-id>', 'yashoza19');
+   VALUES ('pilot', 'Pilot User', 'UXXXXXXXX', '<jira-account-id>', 'pilot-user');
    ```
 
    Slack member ID: profile → ⋮ → **Copy member ID**.
@@ -390,8 +389,8 @@ Use this flow to validate M3 end-to-end on a laptop:
 
    ```bash
    pip install -e ".[slack]"
-   status collect -p yoza --week 2026-08-14
-   status draft -p yoza --week 2026-08-14
+   status collect -p pilot --week 2026-08-14
+   status draft -p pilot --week 2026-08-14
    ```
 
 4. **Run the bot:**
@@ -403,7 +402,7 @@ Use this flow to validate M3 end-to-end on a laptop:
 5. **Send the DM** (separate terminal or after backgrounding the bot):
 
    ```bash
-   status send -p yoza --week 2026-08-14
+   status send -p pilot --week 2026-08-14
    ```
 
    Or in Slack: `/weekly-status` or `/weekly-status 2026-08-14`.
@@ -609,10 +608,10 @@ agentic-status-report/
 **CLI commands (all support `--dry-run` where applicable):**
 
 ```bash
-status collect --person yoza --week 2026-08-14 --save-fixture
-status draft   --fixture fixtures/yoza-2026-08-14.json --dry-run
-status draft   --person yoza --week 2026-08-14
-status send    --person yoza --week 2026-08-14
+status collect --person pilot --week 2026-08-14 --save-fixture
+status draft   --fixture fixtures/pilot-2026-08-14.json --dry-run
+status draft   --person pilot --week 2026-08-14
+status send    --person pilot --week 2026-08-14
 status slack run                              # long-lived Socket Mode bot (M3)
 status report  --week 2026-08-14 --dry-run    # M5
 status skills publish --skill drafter

@@ -23,7 +23,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: pipeline
-          image: quay.io/yoza/weekly-status:latest
+          image: quay.io/opdev/weekly-status:latest
           imagePullPolicy: Always
           command:
             - sh
@@ -35,7 +35,7 @@ spec:
               status send -p "${PERSON_ID}" --week "${WEEK_ENDING}"
           env:
             - name: PERSON_ID
-              value: yoza
+              value: pilot
             - name: WEEK_ENDING
               value: "2026-08-14"
           envFrom:

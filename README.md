@@ -23,10 +23,10 @@ status --help
 ## CLI
 
 ```bash
-status collect --person yoza --week 2026-08-14 --save-fixture
-status draft   --fixture fixtures/yoza-2026-08-14.json --dry-run
-status draft   --person yoza --week 2026-08-14
-status send    --person yoza --week 2026-08-14
+status collect --person pilot --week 2026-08-14 --save-fixture
+status draft   --fixture fixtures/pilot-2026-08-14.json --dry-run
+status draft   --person pilot --week 2026-08-14
+status send    --person pilot --week 2026-08-14
 status slack run
 status report  --week 2026-08-14 --dry-run
 status skills list

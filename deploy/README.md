@@ -5,7 +5,7 @@ connections only — no Route, Ingress, or public URL is required.
 
 Full design: [docs/DESIGN.md](../docs/DESIGN.md) §5.6
 
-Closes [issue #6](https://github.com/yashoza19/agentic-status-report/issues/6).
+Closes GitHub issue #6 (M3.5 OpenShift deploy).
 
 ## Prerequisites
 

@@ -16,23 +16,23 @@ from status.skills.schemas import DraftEntry, DraftOutput
 
 
 def test_week_ending_from_payload() -> None:
-    payload = {"week_end": "2026-08-14", "person": "yoza"}
+    payload = {"week_end": "2026-08-14", "person": "pilot"}
     assert week_ending_from_payload(payload) == date(2026, 8, 14)
 
 
 def test_run_drafter_dry_run() -> None:
-    payload = {"person": "yoza", "week_end": "2026-08-14", "jira_issues": [], "pull_requests": []}
+    payload = {"person": "pilot", "week_end": "2026-08-14", "jira_issues": [], "pull_requests": []}
     result = run_drafter(payload, dry_run=True)
-    assert result.person == "yoza"
+    assert result.person == "pilot"
     assert result.week_ending == "2026-08-14"
     assert result.entries == []
     assert "dry-run" in result.flags[0]
 
 
 def test_run_drafter_retries_once_on_skill_error() -> None:
-    payload = {"person": "yoza", "week_end": "2026-08-14", "jira_issues": [], "pull_requests": []}
+    payload = {"person": "pilot", "week_end": "2026-08-14", "jira_issues": [], "pull_requests": []}
     draft = DraftOutput(
-        person="yoza",
+        person="pilot",
         week_ending="2026-08-14",
         entries=[
             DraftEntry(
@@ -67,7 +67,7 @@ def test_run_drafter_retries_once_on_skill_error() -> None:
 
 
 def test_run_drafter_returns_flagged_empty_after_two_failures() -> None:
-    payload = {"person": "yoza", "week_end": "2026-08-14", "jira_issues": [], "pull_requests": []}
+    payload = {"person": "pilot", "week_end": "2026-08-14", "jira_issues": [], "pull_requests": []}
     from status.skills.client import SkillError
 
     with patch("status.skills.drafter.get_settings") as settings_mock:
@@ -88,15 +88,15 @@ def test_run_drafter_returns_flagged_empty_after_two_failures() -> None:
 
 
 def test_normalize_draft_uses_payload_week_end() -> None:
-    payload = {"person": "yoza", "week_end": "2026-08-14"}
+    payload = {"person": "pilot", "week_end": "2026-08-14"}
     draft = DraftOutput(person="other", week_ending="2026-08-07", entries=[])
     normalized = _normalize_draft(draft, payload)
-    assert normalized.person == "yoza"
+    assert normalized.person == "pilot"
     assert normalized.week_ending == "2026-08-14"
 
 
 def test_empty_draft_shape() -> None:
-    payload = {"person": "yoza", "week_end": "2026-08-14"}
+    payload = {"person": "pilot", "week_end": "2026-08-14"}
     draft = _empty_draft(payload, flags=["test flag"])
     assert draft.week_ending == "2026-08-14"
     assert draft.flags == ["test flag"]
@@ -104,5 +104,5 @@ def test_empty_draft_shape() -> None:
 
 def test_load_fixture(tmp_path) -> None:
     path = tmp_path / "payload.json"
-    path.write_text('{"person": "yoza", "week_end": "2026-08-14"}')
-    assert load_fixture(path)["person"] == "yoza"
+    path.write_text('{"person": "pilot", "week_end": "2026-08-14"}')
+    assert load_fixture(path)["person"] == "pilot"

@@ -8,6 +8,8 @@ build/
 .ruff_cache/
 .pytest_cache/
 .env
+docs/JIRA.md
+scripts/
 *.local.yaml
 deploy/secrets.yaml
 deploy/postgres/secret.yaml

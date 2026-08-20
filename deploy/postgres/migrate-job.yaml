@@ -22,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: migrate
-          image: quay.io/yoza/weekly-status:latest
+          image: quay.io/opdev/weekly-status:latest
           imagePullPolicy: Always
           command: ["alembic", "upgrade", "head"]
           envFrom:

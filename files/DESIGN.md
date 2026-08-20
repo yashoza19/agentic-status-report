@@ -1,7 +1,6 @@
 # Weekly status pipeline — POC design doc
 
 Status: draft, for implementation
-Owner: Yash Oza
 Audience: Claude Code, and reviewers on the team
 
 ---
@@ -266,7 +265,7 @@ per-team tone examples without inflating every request.
 ```
 1. Edit skills/weekly-status-drafter/SKILL.md
 2. Test locally in Claude Code against a saved fixture:
-     "Use the weekly-status-drafter skill on fixtures/yash-2026-08-14.json"
+     "Use the weekly-status-drafter skill on fixtures/pilot-2026-08-14.json"
    Iterate here — no upload, no version churn, fastest feedback.
 3. status skills publish --skill drafter
      -> uploads the directory, returns a version id
@@ -408,9 +407,9 @@ weekly-status/
 Every stage must be runnable standalone:
 
 ```
-status collect --person yash --week 2026-08-14 --save-fixture
-status draft   --fixture fixtures/yash-2026-08-14.json --dry-run
-status send    --person yash --week 2026-08-14
+status collect --person pilot --week 2026-08-14 --save-fixture
+status draft   --fixture fixtures/pilot-2026-08-14.json --dry-run
+status send    --person pilot --week 2026-08-14
 status report  --week 2026-08-14 --dry-run
 
 status skills publish --skill drafter        # new version, prints version id
@@ -529,8 +528,7 @@ Open questions for the team:
 
 ## 12. Conventions
 
-- Commits authored solely as Yash Oza `<yashdoza19@gmail.com>`. No AI
-  co-authorship trailers, no `Co-Authored-By` lines.
+- No AI co-authorship trailers, no `Co-Authored-By` lines.
 - Conventional commit prefixes, scoped to component: `feat(collector):`,
   `fix(slack):`.
 - Type hints throughout; `mypy --strict` on `src/status/`.
