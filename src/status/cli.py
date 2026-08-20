@@ -13,7 +13,8 @@ from status.collectors import run_collect
 from status.config import SKILLS_DIR, get_settings
 from status.db import get_session
 from status.skills.client import SkillClient
-from status.skills.drafter import load_fixture, run_drafter
+from status.collectors import run_collect
+from status.skills.drafter import draft_and_persist, load_fixture, run_drafter
 from status.skills.synthesizer import run_synthesizer
 
 app = typer.Typer(no_args_is_help=True, help="Weekly status pipeline CLI")
@@ -63,14 +64,44 @@ def collect(
 
 @app.command()
 def draft(
-    fixture: Annotated[Path, typer.Option("--fixture", "-f", help="Collector payload JSON")],
+    fixture: Annotated[
+        Optional[Path], typer.Option("--fixture", "-f", help="Collector payload JSON")
+    ] = None,
+    person: Annotated[
+        Optional[str], typer.Option("--person", "-p", help="Person ID (collects live data)")
+    ] = None,
+    week: Annotated[
+        Optional[str], typer.Option("--week", "-w", help="Week ending Friday (YYYY-MM-DD)")
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Skip skill invocation")] = False,
+    no_persist: Annotated[
+        bool, typer.Option("--no-persist", help="Do not write draft rows to Postgres")
+    ] = False,
 ) -> None:
-    """Invoke the drafter skill on a collector payload."""
+    """Invoke the drafter skill on a collector payload and persist draft rows."""
     _dry_run_flag(dry_run)
-    payload = load_fixture(fixture)
-    result = run_drafter(payload, dry_run=dry_run)
-    console.print_json(result.model_dump_json(indent=2))
+
+    if fixture is not None:
+        payload = load_fixture(fixture)
+    elif person and week:
+        payload = run_collect(person, _parse_week(week))
+    else:
+        console.print("[red]Provide --fixture or both --person and --week[/]")
+        raise typer.Exit(1)
+
+    if dry_run or no_persist:
+        result = run_drafter(payload, dry_run=dry_run)
+        console.print_json(result.model_dump_json(indent=2))
+        return
+
+    with get_session() as session:
+        run_result = draft_and_persist(session, payload, dry_run=False, persist=True)
+
+    output = run_result.draft.model_dump()
+    output["prompt_version"] = run_result.prompt_version
+    output["persisted_entry_ids"] = run_result.persisted_entry_ids
+    output["superseded_count"] = run_result.superseded_count
+    console.print_json(json.dumps(output, indent=2))
 
 
 @app.command()
