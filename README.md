@@ -23,13 +23,22 @@ status --help
 ## CLI
 
 ```bash
-status collect --person yash --week 2026-08-14 --save-fixture
-status draft   --fixture fixtures/yash-2026-08-14.json --dry-run
-status send    --person yash --week 2026-08-14 --dry-run
+status collect --person yoza --week 2026-08-14 --save-fixture
+status draft   --fixture fixtures/yoza-2026-08-14.json --dry-run
+status draft   --person yoza --week 2026-08-14
+status send    --person yoza --week 2026-08-14
+status slack run
 status report  --week 2026-08-14 --dry-run
 status skills list
 status skills publish --skill drafter
 ```
+
+Install Slack support: `pip install -e ".[slack]"`
+
+## OpenShift (M3.5)
+
+Deploy the Slack Socket Mode bot to OpenShift — no ingress required. See
+[deploy/README.md](deploy/README.md) for build, secrets, and smoke-test steps.
 
 ## Project layout
 
@@ -37,5 +46,6 @@ status skills publish --skill drafter
 skills/           Claude Agent Skill definitions
 src/status/       Python pipeline
 alembic/          Database migrations
+deploy/           Dockerfile and OpenShift manifests
 fixtures/         Saved collector payloads for offline testing
 ```
