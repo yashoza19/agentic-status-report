@@ -54,16 +54,15 @@ def test_run_drafter_retries_once_on_skill_error() -> None:
         settings.anthropic_api_key = "key"
         settings.claude_model = "claude-sonnet-5"
 
-        with patch("status.skills.drafter.SkillClient") as client_cls:
-            client = client_cls.return_value
-            client.invoke_json.side_effect = [
+        with patch("status.skills.drafter.invoke_skill_json") as invoke_mock:
+            invoke_mock.side_effect = [
                 __import__("status.skills.client", fromlist=["SkillError"]).SkillError("bad json"),
                 draft,
             ]
             result = run_drafter(payload)
 
     assert result.entries[0].epic_key == "EET-5493"
-    assert client.invoke_json.call_count == 2
+    assert invoke_mock.call_count == 2
 
 
 def test_run_drafter_returns_flagged_empty_after_two_failures() -> None:
@@ -77,14 +76,13 @@ def test_run_drafter_returns_flagged_empty_after_two_failures() -> None:
         settings.anthropic_api_key = "key"
         settings.claude_model = "claude-sonnet-5"
 
-        with patch("status.skills.drafter.SkillClient") as client_cls:
-            client = client_cls.return_value
-            client.invoke_json.side_effect = SkillError("still bad")
+        with patch("status.skills.drafter.invoke_skill_json") as invoke_mock:
+            invoke_mock.side_effect = SkillError("still bad")
             result = run_drafter(payload)
 
     assert result.entries == []
     assert any("failed after retry" in flag for flag in result.flags)
-    assert client.invoke_json.call_count == 2
+    assert invoke_mock.call_count == 2
 
 
 def test_normalize_draft_uses_payload_week_end() -> None:

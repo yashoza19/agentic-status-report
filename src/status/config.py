@@ -20,6 +20,33 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     claude_model: str = Field(default="claude-sonnet-5", alias="CLAUDE_MODEL")
 
+    skill_provider: str = Field(
+        default="anthropic",
+        alias="SKILL_PROVIDER",
+        description="anthropic (Claude hosted skills) or openai (OpenAI hosted skills)",
+    )
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_base_url: str | None = Field(
+        default="https://api.openai.com/v1",
+        alias="OPENAI_BASE_URL",
+        description="Optional OpenAI-compatible chat base URL (not used for hosted skills)",
+    )
+    openai_skills_base_url: str | None = Field(
+        default=None,
+        alias="OPENAI_SKILLS_BASE_URL",
+        description="Skills upload + Responses API; defaults to https://api.openai.com/v1",
+    )
+    openai_model: str | None = Field(
+        default=None,
+        alias="OPENAI_MODEL",
+        description="Optional OpenAI-compatible model id (e.g. Granite); not used for hosted skills",
+    )
+    openai_skills_model: str = Field(
+        default="gpt-5.2",
+        alias="OPENAI_SKILLS_MODEL",
+        description="OpenAI Responses model that supports shell + skill_reference (e.g. gpt-5.2)",
+    )
+
     slack_bot_token: str | None = Field(default=None, alias="SLACK_BOT_TOKEN")
     slack_app_token: str | None = Field(default=None, alias="SLACK_APP_TOKEN")
     report_channel_id: str | None = Field(default=None, alias="REPORT_CHANNEL_ID")
@@ -80,6 +107,11 @@ class Settings(BaseSettings):
     @property
     def jira_project_list(self) -> list[str]:
         return [p.strip() for p in self.jira_projects.split(",") if p.strip()]
+
+    @property
+    def effective_openai_skills_base_url(self) -> str:
+        base = self.openai_skills_base_url or "https://api.openai.com/v1"
+        return base.rstrip("/")
 
 
 @lru_cache

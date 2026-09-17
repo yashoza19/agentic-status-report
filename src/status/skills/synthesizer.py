@@ -17,13 +17,13 @@ from status.db.repo import (
     get_participation_for_week,
     get_person,
 )
-from status.skills.client import SkillClient, SkillRef
 from status.skills.evidence import (
     JIRA_BROWSE_RE,
     JIRA_KEY_RE,
     jira_keys_from_evidence,
     merge_evidence_labels,
 )
+from status.skills.skill_invoke import invoke_skill_json, skill_provider
 from status.skills.schemas import (
     SynthesisEntry,
     SynthesisFlag,
@@ -375,20 +375,19 @@ def run_synthesizer_from_payload(
             reason="SYNTHESIZER_SKILL_ID is not set",
         )
 
-    client = SkillClient(
-        api_key=settings.anthropic_api_key,
-        model=settings.claude_model,
-        max_tokens=SYNTHESIZER_MAX_TOKENS,
-    )
-    skill = SkillRef(
+    if skill_provider(settings) == "openai" and not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY not configured")
+    if skill_provider(settings) != "openai" and not settings.anthropic_api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not configured")
+
+    result = invoke_skill_json(
         skill_id=settings.synthesizer_skill_id,
-        version=settings.synthesizer_skill_version,
-    )
-    result = client.invoke_json(
-        skill,
-        payload.model_dump(),
-        SYNTHESIZER_INSTRUCTION,
-        SynthesisOutput,
+        skill_version=settings.synthesizer_skill_version,
+        payload=payload.model_dump(),
+        instruction=SYNTHESIZER_INSTRUCTION,
+        schema=SynthesisOutput,
+        settings=settings,
+        max_tokens=SYNTHESIZER_MAX_TOKENS,
     )
     assert isinstance(result, SynthesisOutput)
     return result.model_copy(

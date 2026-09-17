@@ -29,6 +29,7 @@ def request_json(
     body: dict[str, Any] | None = None,
     retries: int = 3,
     backoff_s: float = 1.0,
+    timeout_s: float = 60.0,
 ) -> Any:
     data = None
     req_headers = dict(headers or {})
@@ -40,7 +41,7 @@ def request_json(
     for attempt in range(retries):
         try:
             req = urllib.request.Request(url, data=data, headers=req_headers, method=method)
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
                 raw = resp.read().decode()
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as exc:

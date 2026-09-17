@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from status.config import get_settings
 from status.db import get_session
 from status.db.draft import persist_draft_output
-from status.skills.client import SkillClient, SkillError, SkillRef
+from status.skills.client import SkillError
 from status.skills.evidence import (
     MILESTONE_ONLY_RE,
     build_evidence_labels,
@@ -26,7 +26,9 @@ from status.skills.evidence import (
     outcome_from_linked_evidence,
     payload_jira_keys,
 )
+from status.skills.openai_skills import OpenAISkillError
 from status.skills.schemas import DraftEntry, DraftOutput
+from status.skills.skill_invoke import invoke_skill_json, skill_prompt_version, skill_provider
 
 log = logging.getLogger(__name__)
 
@@ -171,14 +173,11 @@ def run_drafter(payload: dict[str, Any], *, dry_run: bool = False) -> DraftOutpu
             flags=["dry-run: no skill invocation"] if dry_run else ["no DRAFTER_SKILL_ID configured"],
         )
 
-    if not settings.anthropic_api_key:
+    if skill_provider(settings) == "openai":
+        if not settings.openai_api_key:
+            return _empty_draft(payload, flags=["OPENAI_API_KEY not configured"])
+    elif not settings.anthropic_api_key:
         return _empty_draft(payload, flags=["ANTHROPIC_API_KEY not configured"])
-
-    client = SkillClient(api_key=settings.anthropic_api_key, model=settings.claude_model)
-    skill = SkillRef(
-        skill_id=settings.drafter_skill_id,
-        version=settings.drafter_skill_version,
-    )
 
     instruction = DRAFTER_INSTRUCTION
     regeneration_notes = str(payload.get("regeneration_notes") or "").strip()
@@ -188,15 +187,22 @@ def run_drafter(payload: dict[str, Any], *, dry_run: bool = False) -> DraftOutpu
             f"{regeneration_notes}"
         )
 
-    last_error: SkillError | None = None
+    last_error: SkillError | OpenAISkillError | None = None
     for attempt in range(2):
         try:
-            result = client.invoke_json(skill, payload, instruction, DraftOutput)
+            result = invoke_skill_json(
+                skill_id=settings.drafter_skill_id,
+                skill_version=settings.drafter_skill_version,
+                payload=payload,
+                instruction=instruction,
+                schema=DraftOutput,
+                settings=settings,
+            )
             assert isinstance(result, DraftOutput)
             normalized = _normalize_draft(result, payload)
             labeled = attach_evidence_labels(normalized, payload)
             return postprocess_draft(labeled, payload)
-        except SkillError as exc:
+        except (SkillError, OpenAISkillError) as exc:
             last_error = exc
             log.warning("drafter attempt %s failed: %s", attempt + 1, exc)
 
@@ -262,10 +268,11 @@ def draft_and_persist(
     draft = run_drafter(payload, dry_run=dry_run)
 
     if settings.drafter_skill_id and not dry_run:
-        prompt_version = SkillRef(
-            skill_id=settings.drafter_skill_id,
-            version=settings.drafter_skill_version,
-        ).prompt_version
+        prompt_version = skill_prompt_version(
+            settings.drafter_skill_id,
+            settings.drafter_skill_version,
+            settings,
+        )
     else:
         prompt_version = "dry-run"
 

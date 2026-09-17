@@ -17,7 +17,7 @@ from status.skills.drafter import DraftPersistError, draft_and_persist, load_fix
 from status.skills.synthesizer import default_report_filename, synthesize_report
 
 app = typer.Typer(no_args_is_help=True, help="Weekly status pipeline CLI")
-skills_app = typer.Typer(no_args_is_help=True, help="Manage Claude Agent Skills")
+skills_app = typer.Typer(no_args_is_help=True, help="Manage hosted Agent Skills (Anthropic or OpenAI)")
 slack_app = typer.Typer(no_args_is_help=True, help="Slack bot for draft review")
 batch_app = typer.Typer(no_args_is_help=True, help="Batch operations for weekly automation")
 app.add_typer(skills_app, name="skills")
@@ -215,10 +215,44 @@ def report_cmd(
         console.print(result.markdown)
 
 
-@skills_app.command("list")
-def skills_list() -> None:
-    """List custom skills in the workspace."""
+def _resolve_skill_provider(provider: str | None) -> str:
     settings = get_settings()
+    return (provider or settings.skill_provider or "anthropic").strip().lower()
+
+
+@skills_app.command("list")
+def skills_list(
+    provider: Annotated[
+        Optional[str],
+        typer.Option("--provider", help="anthropic or openai (default: SKILL_PROVIDER)"),
+    ] = None,
+) -> None:
+    """List hosted skills in the configured provider workspace."""
+    settings = get_settings()
+    resolved = _resolve_skill_provider(provider)
+
+    if resolved == "openai":
+        if not settings.openai_api_key:
+            console.print("[red]OPENAI_API_KEY not set[/]")
+            raise typer.Exit(1)
+        from status.skills.openai_skills import OpenAISkillsClient
+
+        client = OpenAISkillsClient(
+            settings.openai_api_key,
+            base_url=settings.effective_openai_skills_base_url,
+            model=settings.openai_skills_model,
+        )
+        skills = client.list_skills()
+        table = Table("ID", "Name", "Created")
+        for row in skills:
+            table.add_row(
+                str(row.get("id", "")),
+                str(row.get("name") or row.get("description") or ""),
+                str(row.get("created_at", "")),
+            )
+        console.print(table)
+        return
+
     if not settings.anthropic_api_key:
         console.print("[red]ANTHROPIC_API_KEY not set[/]")
         raise typer.Exit(1)
@@ -231,28 +265,48 @@ def skills_list() -> None:
     console.print(table)
 
 
-@skills_app.command("publish")
-def skills_publish(
-    skill: Annotated[str, typer.Option("--skill", help="drafter or synthesizer")],
-) -> None:
-    """Publish a new version of a skill from the local skills/ directory."""
+def _publish_one_skill(skill: str, *, provider: str) -> None:
     settings = get_settings()
-    if not settings.anthropic_api_key:
-        console.print("[red]ANTHROPIC_API_KEY not set[/]")
-        raise typer.Exit(1)
-
     skill_map = {
-        "drafter": ("weekly-status-drafter", settings.drafter_skill_id),
-        "synthesizer": ("weekly-status-synthesizer", settings.synthesizer_skill_id),
+        "drafter": ("weekly-status-drafter", settings.drafter_skill_id, "DRAFTER"),
+        "synthesizer": (
+            "weekly-status-synthesizer",
+            settings.synthesizer_skill_id,
+            "SYNTHESIZER",
+        ),
     }
     if skill not in skill_map:
-        console.print(f"[red]Unknown skill: {skill}. Use drafter or synthesizer.[/]")
+        console.print(f"[red]Unknown skill: {skill}. Use drafter, synthesizer, or all.[/]")
         raise typer.Exit(1)
 
-    dir_name, skill_id = skill_map[skill]
+    dir_name, skill_id, env_prefix = skill_map[skill]
     skill_dir = SKILLS_DIR / dir_name
     if not skill_dir.exists():
         console.print(f"[red]Skill directory not found: {skill_dir}[/]")
+        raise typer.Exit(1)
+
+    if provider == "openai":
+        if not settings.openai_api_key:
+            console.print("[red]OPENAI_API_KEY not set[/]")
+            raise typer.Exit(1)
+        from status.skills.openai_skills import OpenAISkillsClient
+
+        client = OpenAISkillsClient(
+            settings.openai_api_key,
+            base_url=settings.effective_openai_skills_base_url,
+            model=settings.openai_skills_model,
+        )
+        if skill_id:
+            version = client.publish_version(skill_id, skill_dir)
+            console.print(f"Published {dir_name} on OpenAI version {version}")
+        else:
+            new_id = client.upload(skill_dir)
+            console.print(f"Created {dir_name} on OpenAI with id {new_id}")
+            console.print(f"Set {env_prefix}_SKILL_ID={new_id} in your environment")
+        return
+
+    if not settings.anthropic_api_key:
+        console.print("[red]ANTHROPIC_API_KEY not set[/]")
         raise typer.Exit(1)
 
     client = SkillClient(api_key=settings.anthropic_api_key)
@@ -262,7 +316,27 @@ def skills_publish(
     else:
         new_id = client.upload(skill_dir, display_name=dir_name)
         console.print(f"Created {dir_name} with id {new_id}")
-        console.print(f"Set {skill.upper()}_SKILL_ID={new_id} in your environment")
+        console.print(f"Set {env_prefix}_SKILL_ID={new_id} in your environment")
+
+
+@skills_app.command("publish")
+def skills_publish(
+    skill: Annotated[
+        str,
+        typer.Option("--skill", help="drafter, synthesizer, or all"),
+    ],
+    provider: Annotated[
+        Optional[str],
+        typer.Option("--provider", help="anthropic or openai (default: SKILL_PROVIDER)"),
+    ] = None,
+) -> None:
+    """Publish a new version of a skill from the local skills/ directory."""
+    resolved = _resolve_skill_provider(provider)
+    if skill == "all":
+        for name in ("drafter", "synthesizer"):
+            _publish_one_skill(name, provider=resolved)
+        return
+    _publish_one_skill(skill, provider=resolved)
 
 
 @batch_app.command("collect-and-draft")
