@@ -17,7 +17,6 @@ from status.db.repo import (
     get_participation_for_week,
     get_person,
 )
-from status.skills.client import SkillClient, SkillRef
 from status.skills.evidence import (
     JIRA_BROWSE_RE,
     JIRA_KEY_RE,
@@ -31,6 +30,7 @@ from status.skills.schemas import (
     SynthesisOutput,
     SynthesisParticipation,
 )
+from status.skills.skill_invoke import invoke_skill_json, skill_prompt_version, skill_provider
 
 log = logging.getLogger(__name__)
 
@@ -375,20 +375,36 @@ def run_synthesizer_from_payload(
             reason="SYNTHESIZER_SKILL_ID is not set",
         )
 
-    client = SkillClient(
-        api_key=settings.anthropic_api_key,
-        model=settings.claude_model,
-        max_tokens=SYNTHESIZER_MAX_TOKENS,
-    )
-    skill = SkillRef(
+    provider = skill_provider(settings)
+    if provider == "anthropic" and not settings.anthropic_api_key:
+        return _dry_run_output(
+            payload,
+            week_ending,
+            reason="ANTHROPIC_API_KEY is not set",
+        )
+    if provider == "gemini":
+        if not settings.effective_gcp_project:
+            return _dry_run_output(
+                payload,
+                week_ending,
+                reason="GCP_PROJECT is not set",
+            )
+        if not settings.synthesizer_agent_id:
+            return _dry_run_output(
+                payload,
+                week_ending,
+                reason="SYNTHESIZER_AGENT_ID is not set",
+            )
+
+    result = invoke_skill_json(
         skill_id=settings.synthesizer_skill_id,
-        version=settings.synthesizer_skill_version,
-    )
-    result = client.invoke_json(
-        skill,
-        payload.model_dump(),
-        SYNTHESIZER_INSTRUCTION,
-        SynthesisOutput,
+        skill_version=settings.synthesizer_skill_version,
+        payload=payload.model_dump(),
+        instruction=SYNTHESIZER_INSTRUCTION,
+        schema=SynthesisOutput,
+        settings=settings,
+        max_tokens=SYNTHESIZER_MAX_TOKENS,
+        agent_id=settings.synthesizer_agent_id,
     )
     assert isinstance(result, SynthesisOutput)
     return result.model_copy(
@@ -463,8 +479,18 @@ def synthesize_report(
                 session,
                 week_ending,
                 result,
-                prompt_version=SYNTHESIZER_PROMPT_VERSION,
-                model=settings.claude_model,
+                prompt_version=skill_prompt_version(
+                    settings.synthesizer_skill_id or "weekly-status-synthesizer",
+                    settings.synthesizer_skill_version,
+                    settings,
+                )
+                if settings.synthesizer_skill_id
+                else SYNTHESIZER_PROMPT_VERSION,
+                model=(
+                    settings.gemini_base_agent
+                    if skill_provider(settings) == "gemini"
+                    else settings.claude_model
+                ),
                 confirmed_entries=confirmed_entries,
                 output_uri=str(output_path) if output_path is not None else None,
                 delivered=delivered,

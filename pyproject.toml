@@ -21,6 +21,10 @@ dependencies = [
 
 [project.optional-dependencies]
 slack = ["slack-bolt>=1.22"]
+gemini = [
+    "google-auth>=2.28",
+    "requests>=2.31",
+]
 dev = [
     "mypy>=1.14",
     "pytest>=8.3",
@@ -44,3 +48,6 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: live external API tests (require credentials and RUN_* flags)",
+]

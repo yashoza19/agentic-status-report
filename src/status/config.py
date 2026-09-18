@@ -20,6 +20,45 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     claude_model: str = Field(default="claude-sonnet-5", alias="CLAUDE_MODEL")
 
+    skill_provider: str = Field(
+        default="anthropic",
+        alias="SKILL_PROVIDER",
+        description="anthropic (Claude hosted skills) or gemini (Skill Registry + Managed Agents)",
+    )
+
+    gcp_project: str | None = Field(default=None, alias="GCP_PROJECT")
+    google_cloud_project: str | None = Field(default=None, alias="GOOGLE_CLOUD_PROJECT")
+    gcp_location: str = Field(
+        default="us-central1",
+        alias="GCP_LOCATION",
+        description="Skill Registry location (us-central1, europe-west4, or us-east5)",
+    )
+    gcp_agents_location: str = Field(
+        default="global",
+        alias="GCP_AGENTS_LOCATION",
+        description="Managed Agents API location (global)",
+    )
+    gcp_interactions_location: str = Field(
+        default="global",
+        alias="GCP_INTERACTIONS_LOCATION",
+        description="Interactions API location (global)",
+    )
+    gemini_base_agent: str = Field(
+        default="antigravity-preview-05-2026",
+        alias="GEMINI_BASE_AGENT",
+        description="Managed Agents base_agent id",
+    )
+    drafter_agent_id: str | None = Field(
+        default="weekly-status-drafter-agent",
+        alias="DRAFTER_AGENT_ID",
+        description="Managed Agent id for draft (Gemini)",
+    )
+    synthesizer_agent_id: str | None = Field(
+        default="weekly-status-synthesizer-agent",
+        alias="SYNTHESIZER_AGENT_ID",
+        description="Managed Agent id for report (Gemini)",
+    )
+
     slack_bot_token: str | None = Field(default=None, alias="SLACK_BOT_TOKEN")
     slack_app_token: str | None = Field(default=None, alias="SLACK_APP_TOKEN")
     report_channel_id: str | None = Field(default=None, alias="REPORT_CHANNEL_ID")
@@ -80,6 +119,11 @@ class Settings(BaseSettings):
     @property
     def jira_project_list(self) -> list[str]:
         return [p.strip() for p in self.jira_projects.split(",") if p.strip()]
+
+    @property
+    def effective_gcp_project(self) -> str | None:
+        project = (self.gcp_project or self.google_cloud_project or "").strip()
+        return project or None
 
 
 @lru_cache

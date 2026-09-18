@@ -14,10 +14,12 @@ from status.config import SKILLS_DIR, get_settings
 from status.db import get_session
 from status.skills.client import SkillClient
 from status.skills.drafter import DraftPersistError, draft_and_persist, load_fixture, run_drafter
+from status.skills.gemini_skills import GeminiSkillError
+from status.skills.skill_invoke import gemini_client_from_settings
 from status.skills.synthesizer import default_report_filename, synthesize_report
 
 app = typer.Typer(no_args_is_help=True, help="Weekly status pipeline CLI")
-skills_app = typer.Typer(no_args_is_help=True, help="Manage Claude Agent Skills")
+skills_app = typer.Typer(no_args_is_help=True, help="Manage hosted Agent Skills")
 slack_app = typer.Typer(no_args_is_help=True, help="Slack bot for draft review")
 batch_app = typer.Typer(no_args_is_help=True, help="Batch operations for weekly automation")
 app.add_typer(skills_app, name="skills")
@@ -25,6 +27,17 @@ app.add_typer(slack_app, name="slack")
 app.add_typer(batch_app, name="run-week")
 
 console = Console()
+
+GEMINI_AGENT_INSTRUCTIONS = {
+    "drafter": (
+        "Follow the mounted weekly-status-drafter skill under /.agent/skills. "
+        "Return only the JSON object defined by the skill as plain text."
+    ),
+    "synthesizer": (
+        "Follow the mounted weekly-status-synthesizer skill under /.agent/skills. "
+        "Return only the JSON object defined by the skill as plain text."
+    ),
+}
 
 
 def _parse_week(value: str) -> date:
@@ -216,9 +229,40 @@ def report_cmd(
 
 
 @skills_app.command("list")
-def skills_list() -> None:
-    """List custom skills in the workspace."""
+def skills_list(
+    provider: Annotated[
+        Optional[str],
+        typer.Option("--provider", help="anthropic | gemini (default: SKILL_PROVIDER)"),
+    ] = None,
+) -> None:
+    """List custom skills in the selected provider workspace."""
     settings = get_settings()
+    selected = (provider or settings.skill_provider or "anthropic").strip().lower()
+
+    if selected == "gemini":
+        try:
+            client = gemini_client_from_settings(settings)
+            skills = client.list_skills()
+        except GeminiSkillError as exc:
+            console.print(f"[red]{exc}[/]")
+            raise typer.Exit(1) from exc
+        table = Table("Name", "Display", "State", "Updated")
+        for skill in skills:
+            name = str(skill.get("name") or "")
+            skill_id = name.rsplit("/", 1)[-1] if name else ""
+            table.add_row(
+                skill_id or name,
+                str(skill.get("displayName") or skill.get("display_name") or ""),
+                str(skill.get("state") or ""),
+                str(skill.get("updateTime") or skill.get("update_time") or ""),
+            )
+        console.print(table)
+        return
+
+    if selected != "anthropic":
+        console.print(f"[red]Unknown provider: {selected}. Use anthropic or gemini.[/]")
+        raise typer.Exit(1)
+
     if not settings.anthropic_api_key:
         console.print("[red]ANTHROPIC_API_KEY not set[/]")
         raise typer.Exit(1)
@@ -231,11 +275,50 @@ def skills_list() -> None:
     console.print(table)
 
 
-@skills_app.command("publish")
-def skills_publish(
-    skill: Annotated[str, typer.Option("--skill", help="drafter or synthesizer")],
-) -> None:
-    """Publish a new version of a skill from the local skills/ directory."""
+def _publish_gemini_skill(kind: str) -> None:
+    settings = get_settings()
+    skill_map = {
+        "drafter": (
+            "weekly-status-drafter",
+            settings.drafter_skill_id or "weekly-status-drafter",
+            settings.drafter_agent_id or "weekly-status-drafter-agent",
+        ),
+        "synthesizer": (
+            "weekly-status-synthesizer",
+            settings.synthesizer_skill_id or "weekly-status-synthesizer",
+            settings.synthesizer_agent_id or "weekly-status-synthesizer-agent",
+        ),
+    }
+    dir_name, skill_id, agent_id = skill_map[kind]
+    skill_dir = SKILLS_DIR / dir_name
+    if not skill_dir.exists():
+        console.print(f"[red]Skill directory not found: {skill_dir}[/]")
+        raise typer.Exit(1)
+
+    try:
+        client = gemini_client_from_settings(settings)
+        published_id, version = client.upload_or_update(skill_dir, skill_id)
+        ensured_agent = client.ensure_agent(
+            agent_id=agent_id,
+            skill_id=published_id,
+            skill_version=version if version != "latest" else "latest",
+            system_instruction=GEMINI_AGENT_INSTRUCTIONS[kind],
+            description=f"Weekly status {kind} agent",
+        )
+    except GeminiSkillError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    console.print(f"Published Gemini skill {published_id} (version {version})")
+    console.print(f"Ensured Managed Agent {ensured_agent}")
+    env_skill = "DRAFTER_SKILL_ID" if kind == "drafter" else "SYNTHESIZER_SKILL_ID"
+    env_agent = "DRAFTER_AGENT_ID" if kind == "drafter" else "SYNTHESIZER_AGENT_ID"
+    console.print(f"Set {env_skill}={published_id}")
+    console.print(f"Set {env_agent}={ensured_agent}")
+    console.print("Set SKILL_PROVIDER=gemini")
+
+
+def _publish_anthropic_skill(kind: str) -> None:
     settings = get_settings()
     if not settings.anthropic_api_key:
         console.print("[red]ANTHROPIC_API_KEY not set[/]")
@@ -245,11 +328,7 @@ def skills_publish(
         "drafter": ("weekly-status-drafter", settings.drafter_skill_id),
         "synthesizer": ("weekly-status-synthesizer", settings.synthesizer_skill_id),
     }
-    if skill not in skill_map:
-        console.print(f"[red]Unknown skill: {skill}. Use drafter or synthesizer.[/]")
-        raise typer.Exit(1)
-
-    dir_name, skill_id = skill_map[skill]
+    dir_name, skill_id = skill_map[kind]
     skill_dir = SKILLS_DIR / dir_name
     if not skill_dir.exists():
         console.print(f"[red]Skill directory not found: {skill_dir}[/]")
@@ -262,8 +341,35 @@ def skills_publish(
     else:
         new_id = client.upload(skill_dir, display_name=dir_name)
         console.print(f"Created {dir_name} with id {new_id}")
-        console.print(f"Set {skill.upper()}_SKILL_ID={new_id} in your environment")
+        console.print(f"Set {kind.upper()}_SKILL_ID={new_id} in your environment")
 
+
+@skills_app.command("publish")
+def skills_publish(
+    skill: Annotated[
+        str,
+        typer.Option("--skill", help="drafter | synthesizer | all"),
+    ],
+    provider: Annotated[
+        Optional[str],
+        typer.Option("--provider", help="anthropic | gemini (default: SKILL_PROVIDER)"),
+    ] = None,
+) -> None:
+    """Publish a skill from the local skills/ directory (and ensure Gemini agents)."""
+    settings = get_settings()
+    selected = (provider or settings.skill_provider or "anthropic").strip().lower()
+    kinds = ["drafter", "synthesizer"] if skill == "all" else [skill]
+    for kind in kinds:
+        if kind not in {"drafter", "synthesizer"}:
+            console.print(f"[red]Unknown skill: {skill}. Use drafter, synthesizer, or all.[/]")
+            raise typer.Exit(1)
+        if selected == "gemini":
+            _publish_gemini_skill(kind)
+        elif selected == "anthropic":
+            _publish_anthropic_skill(kind)
+        else:
+            console.print(f"[red]Unknown provider: {selected}. Use anthropic or gemini.[/]")
+            raise typer.Exit(1)
 
 @batch_app.command("collect-and-draft")
 def batch_collect_and_draft(

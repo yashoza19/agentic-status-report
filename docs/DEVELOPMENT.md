@@ -96,6 +96,21 @@ status skills publish --skill drafter
 # copy printed skill id into .env if first time
 ```
 
+### Draft / report with Gemini hosted skills (optional)
+
+See [GEMINI_HOSTED_SKILLS.md](GEMINI_HOSTED_SKILLS.md) for Option A (Skill Registry +
+Managed Agents + Interactions API).
+
+```bash
+pip install -e '.[gemini]'
+export SKILL_PROVIDER=gemini
+export GCP_PROJECT=your-project
+export GCP_LOCATION=us-central1
+# ADC: gcloud auth application-default login
+status skills publish --skill all --provider gemini
+# set DRAFTER_SKILL_ID / SYNTHESIZER_SKILL_ID and *_AGENT_ID from the CLI output
+```
+
 ### Send (Slack DM)
 
 ```bash
