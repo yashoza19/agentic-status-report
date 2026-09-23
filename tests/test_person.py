@@ -1,6 +1,37 @@
 from __future__ import annotations
 
+import json
+
+import pytest
+
+from status.collectors import person as person_module
 from status.collectors.person import resolve_person
+
+
+@pytest.fixture(autouse=True)
+def roster_fixture(tmp_path, monkeypatch):
+    roster_path = tmp_path / "eet-persons.json"
+    roster_path.write_text(
+        json.dumps(
+            [
+                {
+                    "person_id": "makon57",
+                    "github_login": "makon57",
+                    "jira_email": "mkong@redhat.com",
+                },
+                {
+                    "person_id": "caxu-rh",
+                    "github_login": "caxu-rh",
+                    "jira_email": "caxu@redhat.com",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(person_module, "ROSTER_PATH", roster_path)
+    person_module._roster_jira_emails.cache_clear()
+    yield
+    person_module._roster_jira_emails.cache_clear()
 
 
 def test_resolve_person_uses_roster_jira_email_for_teammate() -> None:
