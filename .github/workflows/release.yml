@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE_NAME: quay.io/opdev/agentic-status-report
+  IMAGE_NAME: quay.io/opdev/weekly-status
 
 jobs:
   test:
