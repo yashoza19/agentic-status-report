@@ -16,8 +16,9 @@ COPY skills/ skills/
 COPY alembic/ alembic/
 COPY alembic.ini .
 
-RUN pip install ".[slack]" \
-    && pip uninstall --yes setuptools
+RUN pip install --upgrade "pip>=26.2" \
+    && pip install ".[slack]" \
+    && pip uninstall --yes setuptools wheel pip
 
 USER 1001
 
