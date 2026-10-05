@@ -118,6 +118,8 @@ Special routing:
   - `nudge_failed`: "The status reminder could not be delivered to {name}."
 - Every non-null `ask` from any entry must appear in a **Decisions needed** subsection (add after Mindshare if any asks exist). Render verbatim or near-verbatim.
 - **Never include gap-detection or data-quality commentary** — omit phrases like "no linked Jira tickets", "no linked commits or PRs", "backlog status in Jira despite PRs merging", or similar audit observations. Report only what work happened (`outcome`), blockers, and asks.
+- Omit a backlog-only item when the outcome contains no current-week action,
+  decision, comment, transition, or linked implementation work.
 
 ## Formatting rules
 
@@ -135,6 +137,9 @@ Special routing:
   a bare `PR #104` label.
 - Do not enumerate implementation artifacts for management. Mention at most two
   visible evidence links in one bullet, even when the entry contains many URLs.
+- The supplied `evidence` has already been reduced to the display-worthy subset.
+  Never add an "additional evidence" clause, enumerate unused evidence, or emit
+  raw commit hashes.
 - Prefer a Jira initiative link over individual PR links when it supports the
   same statement. Otherwise select the one or two PRs that best represent the
   outcome.
@@ -149,6 +154,8 @@ Special routing:
 - Avoid vague standalone phrases such as "worked on", "tracked", or "advanced
   discussions". When the source contains the detail, name the specific problem,
   decision, component, result, or remaining state.
+- Never use generic link text such as "implementation change". If the input does
+  not provide a meaningful phrase, omit that link from visible Markdown.
 - Never replace missing detail with ordinal placeholders such as "one discussion
   item", "another item", "the first ticket", or "related work". If confirmed
   outcomes do not say what completed or remains in progress, preserve no claim
