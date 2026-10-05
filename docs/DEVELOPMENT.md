@@ -77,8 +77,14 @@ GITHUB_TOKEN=                      # classic or fine-grained PAT
 GITHUB_LOGIN=your-github-login
 ```
 
-Jira collection uses `JIRA_EMAIL` for assignee/reporter JQL. Override per run with
-`status collect --jira-email` when needed.
+Jira collection uses the target person's stored Jira email for owned work and
+for attributable comments on recently updated tickets assigned to someone else.
+`JIRA_API_EMAIL` authenticates the operator token; override the target identity
+per run with `status collect --jira-email` when needed.
+
+GitHub collection uses the person's stored login. It includes authored PRs and
+commits, issues created, issue/PR conversation comments, and submitted PR
+reviews. Review requests without a submitted review are ignored.
 
 ### Hosted skills
 
@@ -251,7 +257,7 @@ SQL
 |--------|------------------|
 | `person_id` | Short handle used in CLI (`-p yoza`) |
 | `slack_user_id` | Slack profile → copy member ID (`U…` / `W…`) |
-| `github_login` | GitHub username for commit/PR search |
+| `github_login` | GitHub username for authored and collaborative activity search |
 
 Set `JIRA_EMAIL` in `.env` (or pass `--jira-email` on collect) for Jira activity.
 

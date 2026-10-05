@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     )
     github_max_prs: int = Field(default=50, alias="GITHUB_MAX_PRS")
     github_max_commits: int = Field(default=100, alias="GITHUB_MAX_COMMITS")
+    github_max_issues: int = Field(default=50, alias="GITHUB_MAX_ISSUES")
+    github_max_reviews: int = Field(default=100, alias="GITHUB_MAX_REVIEWS")
+    github_max_comments: int = Field(default=100, alias="GITHUB_MAX_COMMENTS")
 
     jira_epic_field: str | None = Field(
         default=None,
@@ -87,6 +90,11 @@ class Settings(BaseSettings):
         description="Custom field id for Epic Link, e.g. customfield_10014",
     )
     jira_max_issues: int = Field(default=100, alias="JIRA_MAX_ISSUES")
+    jira_max_collaboration_issues: int = Field(
+        default=100,
+        alias="JIRA_MAX_COLLABORATION_ISSUES",
+        description="Recently updated project issues inspected for a person's comments",
+    )
 
     pilot_person_ids: str = Field(default="", alias="PILOT_PERSON_IDS")
 

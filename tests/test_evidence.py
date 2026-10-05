@@ -104,6 +104,22 @@ def test_filter_evidence_to_payload_drops_unknown_urls() -> None:
     assert evidence == []
 
 
+def test_filter_evidence_to_payload_keeps_attributable_github_activity() -> None:
+    review_url = "https://github.com/org/repo/pull/9#pullrequestreview-10"
+    evidence = filter_evidence_to_payload(
+        [review_url, "https://github.com/org/repo/pull/99"],
+        allowed_jira_keys=set(),
+        github_activity=[
+            {
+                "type": "pull_request_review",
+                "url": review_url,
+                "subject_url": "https://github.com/org/repo/pull/9",
+            }
+        ],
+    )
+    assert evidence == [review_url]
+
+
 def test_markdown_links_to_slack() -> None:
     text = "See [edit flows](https://redhat.atlassian.net/browse/EET-5527)."
     assert text.replace(

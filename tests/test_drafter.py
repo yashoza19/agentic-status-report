@@ -153,6 +153,36 @@ def test_repository_epic_hints_drop_ambiguous_repository() -> None:
     assert build_repository_epic_hints(payload) == []
 
 
+def test_repository_epic_hints_use_linked_github_collaboration() -> None:
+    payload = {
+        "jira_issues": [
+            {
+                "key": "EET-5000",
+                "epic_key": "EET-4900",
+                "epic_name": "Partner certification",
+                "project": "EET",
+            }
+        ],
+        "github_activity": [
+            {
+                "type": "pull_request_review",
+                "repo": "org/operator",
+                "url": "https://github.com/org/operator/pull/10#pullrequestreview-1",
+                "linked_issue_keys": ["EET-5000"],
+            }
+        ],
+    }
+    assert build_repository_epic_hints(payload) == [
+        {
+            "repo": "org/operator",
+            "epic_key": "EET-4900",
+            "epic_name": "Partner certification",
+            "project": "EET",
+            "basis": "current linked Jira evidence",
+        }
+    ]
+
+
 def test_postprocess_merges_separate_repo_work_into_hinted_epic() -> None:
     pr_url = "https://github.com/opdev/agentic-status-report/pull/40"
     payload = {

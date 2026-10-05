@@ -53,7 +53,10 @@ DRAFTER_INSTRUCTION = (
     "URL in evidence; accept an unambiguous repository_epic_hint when the subjects match; "
     "and omit collector diagnostics about missing Jira links, assignees, reporters, payloads, "
     "or transition history. A Jira issue with is_assignee=false may supply its parent epic as "
-    "grouping context, but do not cite that issue or claim its status as this person's work."
+    "grouping context, but cite it only when activity_role=collaborator proves this person "
+    "commented or transitioned it. Treat github_activity as attributable collaboration: say "
+    "opened, reviewed, requested changes, approved, or commented as recorded; never claim the "
+    "person authored or merged the underlying PR when they only reviewed it."
 )
 
 
@@ -174,6 +177,7 @@ def build_repository_epic_hints(payload: dict[str, Any]) -> list[dict[str, str]]
     for artifact in [
         *(payload.get("pull_requests") or []),
         *(payload.get("commits") or []),
+        *(payload.get("github_activity") or []),
     ]:
         repo = str(artifact.get("repo") or "").strip() or _github_repo_from_text(
             artifact.get("url")
@@ -272,12 +276,12 @@ def merge_hinted_repository_entries(
     for source_index, source in enumerate(entries):
         if source.epic_key is not None:
             continue
-        repo = _entry_repository(source)
-        hint = hints.get(repo or "")
-        if not repo or hint is None:
+        source_repo = _entry_repository(source)
+        hint = hints.get(source_repo or "")
+        if not source_repo or hint is None:
             continue
 
-        pull_requests = pull_requests_by_repo.get(repo, [])
+        pull_requests = pull_requests_by_repo.get(source_repo, [])
         source_outcome = (
             _pr_outcome(pull_requests)
             if len(pull_requests) > 2
@@ -499,6 +503,7 @@ def postprocess_draft(draft: DraftOutput, payload: dict[str, Any]) -> DraftOutpu
             allowed_jira_keys=allowed_keys,
             pull_requests=list(payload.get("pull_requests") or []),
             commits=list(payload.get("commits") or []),
+            github_activity=list(payload.get("github_activity") or []),
         )
         labels = {
             key: label

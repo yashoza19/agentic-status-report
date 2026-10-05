@@ -110,17 +110,24 @@ def filter_evidence_to_payload(
     allowed_jira_keys: set[str],
     pull_requests: list[dict[str, Any]] | None = None,
     commits: list[dict[str, Any]] | None = None,
+    github_activity: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     """Keep only evidence items grounded in this week's collector payload."""
     pr_urls = {str(pr.get("url")) for pr in (pull_requests or []) if pr.get("url")}
     commit_urls = {str(c.get("url")) for c in (commits or []) if c.get("url")}
+    activity_urls = {
+        str(value)
+        for activity in github_activity or []
+        for value in (activity.get("url"), activity.get("subject_url"))
+        if value
+    }
     kept: list[str] = []
     for item in evidence:
         if JIRA_KEY_RE.match(item):
             if item in allowed_jira_keys:
                 kept.append(item)
             continue
-        if item in pr_urls or item in commit_urls:
+        if item in pr_urls or item in commit_urls or item in activity_urls:
             kept.append(item)
             continue
         browse_match = JIRA_BROWSE_RE.search(item)

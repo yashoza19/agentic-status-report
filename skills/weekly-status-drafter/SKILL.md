@@ -35,6 +35,7 @@ You receive a JSON payload:
       "assignee_display_name": "string | null",
       "is_assignee": true,
       "is_reporter": false,
+      "activity_role": "owner | collaborator",
       "epic_key": "AIPLAT-204 | null",
       "epic_name": "string | null",
       "project": "string",
@@ -53,6 +54,20 @@ You receive a JSON payload:
     { "sha": "string", "url": "string", "summary": "first line of commit message",
       "message": "string", "repo": "owner/repo", "committed_at": "ISO-8601",
       "linked_issue_keys": ["AIPLAT-231"] }
+  ],
+  "github_activity": [
+    {
+      "type": "issue_created | issue_comment | pull_request_comment | pull_request_review",
+      "url": "permalink to the attributable activity",
+      "subject_url": "issue or pull-request URL",
+      "title": "issue or pull-request title",
+      "repo": "owner/repository",
+      "action": "created | commented | approved | changes_requested",
+      "body": "bounded comment or review body",
+      "review_comments": ["bounded inline review comment"],
+      "occurred_at": "ISO-8601",
+      "linked_issue_keys": ["AIPLAT-231"]
+    }
   ],
   "repository_epic_hints": [
     {
@@ -120,8 +135,18 @@ Only report tickets **this person worked on this week**. Use `is_assignee`,
 `transitions`, `comments`, linked PRs, and commits — not every sibling ticket
 under the same epic.
 
+- `activity_role: owner` means the person is the assignee or reporter.
+  `activity_role: collaborator` means the ticket belongs to someone else but
+  this person's comment or transition was verified in the reporting window.
 - If a ticket is in `jira_issues` but `is_assignee` is false and the person had
   no transition or comment on it, do **not** cite it in `evidence` or `outcome`.
+- For collaborator tickets, describe the person's contribution from their
+  comment or transition. Do not imply they own the ticket or performed the
+  assignee's implementation work.
+- For `github_activity`, use its exact action. A review, approval, change
+  request, or comment is collaboration evidence, not evidence that the person
+  authored or merged the PR. A review request without a submitted review is
+  not activity and must not be reported.
 - Never summarize someone else's assignee work under this person's draft (e.g. do
   not mention M4/M5 milestone labels for tickets assigned to a teammate).
 - Epic-level entries should describe **this person's** shipped or in-progress

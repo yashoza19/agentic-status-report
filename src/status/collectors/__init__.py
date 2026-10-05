@@ -6,9 +6,14 @@ import json
 import logging
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from status.collectors.github import GitHubCollectorError, collect_github_activity
-from status.collectors.jira import JiraCollectorError, collect_jira_activity, filter_person_jira_issues
+from status.collectors.jira import (
+    JiraCollectorError,
+    collect_jira_activity,
+    filter_person_jira_issues,
+)
 from status.collectors.payload import build_payload, week_bounds
 from status.collectors.person import resolve_person
 from status.db import get_session
@@ -25,7 +30,7 @@ def run_collect(
     dry_run: bool = False,
     jira_email: str | None = None,
     github_login: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     week_start, week_end = week_bounds(week_ending)
     errors: list[str] = []
 
@@ -41,7 +46,7 @@ def run_collect(
             _write_fixture(save_fixture, payload)
         return payload
 
-    previous_entries: list[dict] = []
+    previous_entries: list[dict[str, Any]] = []
     try:
         with get_session() as session:
             person = resolve_person(
@@ -64,9 +69,10 @@ def run_collect(
             github_login=github_login,
         )
 
-    jira_issues: list[dict] = []
-    pull_requests: list[dict] = []
-    commits: list[dict] = []
+    jira_issues: list[dict[str, Any]] = []
+    pull_requests: list[dict[str, Any]] = []
+    commits: list[dict[str, Any]] = []
+    github_collaboration: list[dict[str, Any]] = []
 
     if person.jira_email:
         try:
@@ -89,6 +95,7 @@ def run_collect(
             github_activity = collect_github_activity(person.github_login, week_start, week_end)
             pull_requests = github_activity["pull_requests"]
             commits = github_activity["commits"]
+            github_collaboration = github_activity["github_activity"]
         except GitHubCollectorError as exc:
             errors.append(f"github: {exc}")
             log.error("github collection failed for %s: %s", person.person_id, exc)
@@ -105,6 +112,7 @@ def run_collect(
         pull_requests,
         previous_entries,
         commits=commits,
+        github_activity=github_collaboration,
     )
     if errors:
         payload["collection_errors"] = errors
@@ -115,6 +123,6 @@ def run_collect(
     return payload
 
 
-def _write_fixture(path: Path, payload: dict) -> None:
+def _write_fixture(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n")
