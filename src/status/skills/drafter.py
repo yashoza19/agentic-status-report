@@ -43,6 +43,19 @@ INTERNAL_DRAFT_LANGUAGE_RE = re.compile(
     r"assigned to .+ reporter",
     re.IGNORECASE,
 )
+LOW_SIGNAL_GITHUB_RE = re.compile(
+    r"^(?:(?:/)?(?:lgtm|approve|approved|assign|assigned|ack|done|thanks|thank you|"
+    r"looks good(?: to me)?|\+1)[\s.!,:;-]*)+$",
+    re.IGNORECASE,
+)
+GITHUB_SIGNIFICANCE_RE = re.compile(
+    r"\b(?:architecture|blocker|blocking|break(?:ing|s)?|certification|compliance|"
+    r"compatib(?:ility|le)|cve|data loss|decision|deprecat(?:e|ed|ion)|failure|"
+    r"migration|performance|production|release|risk|rollback|security|upgrade|"
+    r"validation|vulnerability)\b",
+    re.IGNORECASE,
+)
+REPORTABLE_REVIEW_ACTIONS = {"approved", "changes_requested", "commented"}
 
 DRAFTER_INSTRUCTION = (
     "Use the weekly-status-drafter skill on the payload below. "
@@ -56,7 +69,10 @@ DRAFTER_INSTRUCTION = (
     "grouping context, but cite it only when activity_role=collaborator proves this person "
     "commented or transitioned it. Treat github_activity as attributable collaboration: say "
     "opened, reviewed, requested changes, approved, or commented as recorded; never claim the "
-    "person authored or merged the underlying PR when they only reviewed it."
+    "person authored or merged the underlying PR when they only reviewed it. Only report a "
+    "review or comment when its body explains a meaningful technical decision, risk, requested "
+    "change, release/security impact, or substantive validation. Never report routine /lgtm, "
+    "/approve, /assign, acknowledgement, reaction-only, or empty approval activity."
 )
 
 
@@ -144,6 +160,55 @@ def attach_evidence_labels(draft: DraftOutput, payload: dict[str, Any]) -> Draft
 def _github_repo_from_text(value: object) -> str | None:
     match = GITHUB_REPO_URL_RE.search(str(value or ""))
     return match.group("repo") if match else None
+
+
+def _substantive_github_text(activity: dict[str, Any]) -> str:
+    values = [activity.get("body"), *(activity.get("review_comments") or [])]
+    return " ".join(str(value or "").strip() for value in values).strip()
+
+
+def is_reportable_github_activity(activity: dict[str, Any]) -> bool:
+    """Return whether collaboration is meaningful enough for a management draft.
+
+    The collector payload remains unchanged for audit/debugging. This filter only
+    controls which attributable activities are sent to the drafting skill.
+    """
+    activity_type = str(activity.get("type") or "").lower()
+    action = str(activity.get("action") or "").lower()
+    text = _substantive_github_text(activity)
+    title = str(activity.get("title") or "").strip()
+    linked_issue_keys = list(activity.get("linked_issue_keys") or [])
+
+    if activity_type == "issue_created":
+        subject = f"{title} {text}".strip()
+        return bool(
+            linked_issue_keys
+            or GITHUB_SIGNIFICANCE_RE.search(subject)
+            or len(subject.split()) >= 8
+        )
+
+    if activity_type == "pull_request_review" and action not in REPORTABLE_REVIEW_ACTIONS:
+        return False
+    if activity_type not in {
+        "issue_comment",
+        "pull_request_comment",
+        "pull_request_review",
+    }:
+        return False
+    if not text or LOW_SIGNAL_GITHUB_RE.fullmatch(text):
+        return False
+
+    return bool(
+        GITHUB_SIGNIFICANCE_RE.search(text)
+        or len(text) >= 120
+    )
+
+
+def filter_reportable_github_activity(
+    activity: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Select substantive collaboration while preserving the source payload."""
+    return [item for item in activity if is_reportable_github_activity(item)]
 
 
 def build_repository_epic_hints(payload: dict[str, Any]) -> list[dict[str, str]]:
@@ -384,6 +449,7 @@ def draft_quality_issues(
             key
             for key in jira_keys_from_evidence(entry.evidence)
             if jira_issues.get(key, {}).get("is_assignee") is False
+            and jira_issues.get(key, {}).get("activity_role") != "collaborator"
         ]
         if unowned_keys:
             issues.append(
@@ -562,7 +628,10 @@ def run_drafter(payload: dict[str, Any], *, dry_run: bool = False) -> DraftOutpu
         return _empty_draft(payload, flags=["ANTHROPIC_API_KEY not configured"])
 
     skill_payload = dict(payload)
-    repository_epic_hints = build_repository_epic_hints(payload)
+    skill_payload["github_activity"] = filter_reportable_github_activity(
+        list(payload.get("github_activity") or [])
+    )
+    repository_epic_hints = build_repository_epic_hints(skill_payload)
     if repository_epic_hints:
         skill_payload["repository_epic_hints"] = repository_epic_hints
 

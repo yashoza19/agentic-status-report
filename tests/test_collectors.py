@@ -441,7 +441,15 @@ def test_collect_github_issue_comments_and_reviews_are_attributed() -> None:
             "state": "CHANGES_REQUESTED",
             "body": "Please preserve the supported upgrade path.",
             "submitted_at": "2026-08-13T00:00:00Z",
-        }
+        },
+        {
+            "id": 11,
+            "html_url": "https://github.com/org/repo/pull/10#pullrequestreview-11",
+            "user": {"login": "pilot-user"},
+            "state": "DISMISSED",
+            "body": "This obsolete review must remain audit-only.",
+            "submitted_at": "2026-08-13T00:02:00Z",
+        },
     ]
     inline_comments = [
         {
@@ -461,10 +469,11 @@ def test_collect_github_issue_comments_and_reviews_are_attributed() -> None:
             date(2026, 8, 14),
             settings=Settings(GITHUB_TOKEN="ghp_test", GITHUB_MAX_REVIEWS=10),
         )
-    assert len(review_activity) == 1
+    assert len(review_activity) == 2
     assert review_activity[0]["type"] == "pull_request_review"
     assert review_activity[0]["action"] == "changes_requested"
     assert review_activity[0]["review_comments"] == [
         "EET-5005: the fallback must remain compatible with existing clusters."
     ]
     assert review_activity[0]["linked_issue_keys"] == ["EET-5004", "EET-5005"]
+    assert review_activity[1]["action"] == "dismissed"

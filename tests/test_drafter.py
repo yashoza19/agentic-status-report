@@ -9,6 +9,7 @@ from status.skills.drafter import (
     build_repository_epic_hints,
     compact_excessive_pr_outcomes,
     draft_quality_issues,
+    filter_reportable_github_activity,
     load_fixture,
     postprocess_draft,
     run_drafter,
@@ -29,6 +30,102 @@ def test_run_drafter_dry_run() -> None:
     assert result.week_ending == "2026-08-14"
     assert result.entries == []
     assert "dry-run" in result.flags[0]
+
+
+def test_filter_reportable_github_activity_drops_routine_interactions() -> None:
+    activities = [
+        {
+            "type": "pull_request_review",
+            "action": "approved",
+            "body": "/lgtm",
+            "linked_issue_keys": ["EET-1"],
+            "url": "https://github.com/org/repo/pull/1#pullrequestreview-1",
+        },
+        {
+            "type": "issue_comment",
+            "action": "commented",
+            "body": "/assign",
+            "url": "https://github.com/org/repo/issues/2#issuecomment-2",
+        },
+        {
+            "type": "pull_request_review",
+            "action": "approved",
+            "body": "",
+            "url": "https://github.com/org/repo/pull/3#pullrequestreview-3",
+        },
+        {
+            "type": "pull_request_comment",
+            "action": "commented",
+            "body": "Please fix the typo.",
+            "linked_issue_keys": ["EET-2"],
+            "url": "https://github.com/org/repo/pull/3#issuecomment-4",
+        },
+        {
+            "type": "pull_request_review",
+            "action": "changes_requested",
+            "body": "Preserve upgrade compatibility and add rollback validation.",
+            "url": "https://github.com/org/repo/pull/4#pullrequestreview-4",
+        },
+        {
+            "type": "issue_comment",
+            "action": "commented",
+            "body": (
+                "Reproduced the production failure and recommended holding the release "
+                "until the rollback path is verified."
+            ),
+            "url": "https://github.com/org/repo/issues/5#issuecomment-5",
+        },
+    ]
+
+    filtered = filter_reportable_github_activity(activities)
+
+    assert [item["url"] for item in filtered] == [
+        "https://github.com/org/repo/pull/4#pullrequestreview-4",
+        "https://github.com/org/repo/issues/5#issuecomment-5",
+    ]
+    assert len(activities) == 6
+
+
+def test_run_drafter_sends_only_reportable_github_activity_to_skill() -> None:
+    payload = {
+        "person": "pilot",
+        "week_end": "2026-08-14",
+        "jira_issues": [],
+        "pull_requests": [],
+        "github_activity": [
+            {
+                "type": "pull_request_review",
+                "action": "approved",
+                "body": "/lgtm",
+                "url": "https://github.com/org/repo/pull/1#pullrequestreview-1",
+            },
+            {
+                "type": "pull_request_review",
+                "action": "changes_requested",
+                "body": "The release needs rollback validation before approval.",
+                "url": "https://github.com/org/repo/pull/2#pullrequestreview-2",
+            },
+        ],
+    }
+    empty = DraftOutput(person="pilot", week_ending="2026-08-14")
+
+    with patch("status.skills.drafter.get_settings") as settings_mock:
+        settings = settings_mock.return_value
+        settings.drafter_skill_id = "skill_test"
+        settings.drafter_skill_version = "latest"
+        settings.skill_provider = "anthropic"
+        settings.anthropic_api_key = "key"
+        with patch(
+            "status.skills.drafter.invoke_skill_json",
+            return_value=empty,
+        ) as invoke_mock:
+            run_drafter(payload)
+
+    skill_payload = invoke_mock.call_args.kwargs["payload"]
+    assert [item["url"] for item in skill_payload["github_activity"]] == [
+        "https://github.com/org/repo/pull/2#pullrequestreview-2"
+    ]
+    assert len(payload["github_activity"]) == 2
 
 
 def test_run_drafter_retries_once_on_skill_error() -> None:
@@ -357,6 +454,39 @@ def test_draft_quality_rejects_reporter_only_jira_evidence() -> None:
     )
 
     assert any("reporter-only Jira work" in issue for issue in issues)
+
+
+def test_draft_quality_accepts_attributable_collaborator_jira_evidence() -> None:
+    draft = DraftOutput(
+        person="pilot",
+        week_ending="2026-08-14",
+        entries=[
+            DraftEntry(
+                project="EET",
+                epic_key="EET-1",
+                epic_name="Pipeline",
+                state="progressing",
+                outcome="Diagnosed the partner upgrade failure.",
+                evidence=["EET-9"],
+                confidence="high",
+            )
+        ],
+    )
+
+    issues = draft_quality_issues(
+        draft,
+        {
+            "jira_issues": [
+                {
+                    "key": "EET-9",
+                    "is_assignee": False,
+                    "activity_role": "collaborator",
+                }
+            ]
+        },
+    )
+
+    assert not any("reporter-only Jira work" in issue for issue in issues)
 
 
 def test_compact_excessive_pr_outcomes_keeps_all_evidence() -> None:

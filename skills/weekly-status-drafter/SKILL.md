@@ -147,6 +147,12 @@ under the same epic.
   request, or comment is collaboration evidence, not evidence that the person
   authored or merged the PR. A review request without a submitted review is
   not activity and must not be reported.
+- Only turn GitHub collaboration into a status outcome when the supplied body
+  describes a meaningful technical decision, risk, requested change,
+  release/security impact, or substantive validation. Do not report routine
+  `/lgtm`, `/approve`, `/assign`, acknowledgement, reaction-only, bot-command,
+  empty approval, or self-assignment activity. Do not create a standalone entry
+  merely to say that a person commented or reviewed something.
 - Never summarize someone else's assignee work under this person's draft (e.g. do
   not mention M4/M5 milestone labels for tickets assigned to a teammate).
 - Epic-level entries should describe **this person's** shipped or in-progress
