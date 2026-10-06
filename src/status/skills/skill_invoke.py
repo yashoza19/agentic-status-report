@@ -13,6 +13,14 @@ from status.skills.openai_skills import OpenAISkillError, OpenAISkillRef, OpenAI
 SkillProvider = Literal["anthropic", "openai"]
 
 
+def skill_model(settings: Settings | None = None) -> str:
+    """Return the model used by the active hosted-skill provider."""
+    settings = settings or get_settings()
+    if skill_provider(settings) == "openai":
+        return settings.openai_skills_model
+    return settings.claude_model
+
+
 def skill_prompt_version(skill_id: str, skill_version: str, settings: Settings | None = None) -> str:
     settings = settings or get_settings()
     if skill_provider(settings) == "openai":

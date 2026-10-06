@@ -31,7 +31,12 @@ from status.skills.schemas import (
     SynthesisOutput,
     SynthesisParticipation,
 )
-from status.skills.skill_invoke import invoke_skill_json, skill_provider
+from status.skills.skill_invoke import (
+    invoke_skill_json,
+    skill_model,
+    skill_prompt_version,
+    skill_provider,
+)
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +46,6 @@ SYNTHESIZER_INSTRUCTION = (
     "Write the JSON in a text block — do not use the code execution tool to format it."
 )
 
-SYNTHESIZER_PROMPT_VERSION = "weekly-status-synthesizer@latest"
 SYNTHESIZER_MAX_TOKENS = 16_384
 
 # Bare `(https://issues.redhat.com/browse/KEY)` — not already part of `[text](url)`.
@@ -577,14 +581,19 @@ def synthesize_report(
         delivered = True
 
     if persist and not dry_run:
+        skill_id = settings.synthesizer_skill_id or "weekly-status-synthesizer"
         with get_session() as session:
             confirmed_entries = get_confirmed_entries_for_week(session, week_ending)
             persist_report_run(
                 session,
                 week_ending,
                 result,
-                prompt_version=SYNTHESIZER_PROMPT_VERSION,
-                model=settings.claude_model,
+                prompt_version=skill_prompt_version(
+                    skill_id,
+                    settings.synthesizer_skill_version,
+                    settings,
+                ),
+                model=skill_model(settings),
                 confirmed_entries=confirmed_entries,
                 output_uri=str(output_path) if output_path is not None else None,
                 delivered=delivered,

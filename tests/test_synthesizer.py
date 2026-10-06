@@ -418,6 +418,8 @@ def test_persist_report_run_supersedes_previous_and_links_entries() -> None:
 
     assert run.output_uri == "status-2026-08-14.md"
     assert run.delivered_at is not None
+    assert run.prompt_version == "weekly-status-synthesizer@latest"
+    assert run.model == "claude-sonnet-5"
     session.execute.assert_called_once()
     assert any(isinstance(obj, ReportRun) for obj in added)
     assert len([obj for obj in added if obj.__class__.__name__ == "ReportEntry"]) == 1
@@ -461,3 +463,55 @@ def test_synthesize_report_deliver_requires_channel(monkeypatch: pytest.MonkeyPa
                     deliver=True,
                     settings=settings,
                 )
+
+
+@pytest.mark.parametrize(
+    ("provider", "skill_id", "skill_version", "expected_model"),
+    [
+        ("openai", "skill_openai_synth", "12", "gpt-6-astra"),
+        ("anthropic", "skill_anthropic_synth", "1759178010641129", "claude-sonnet-5"),
+    ],
+)
+def test_synthesize_report_persists_active_provider_metadata(
+    provider: str,
+    skill_id: str,
+    skill_version: str,
+    expected_model: str,
+) -> None:
+    from status.config import Settings
+    from status.skills import synthesizer as synth_module
+
+    settings = Settings(
+        DATABASE_URL="postgresql+psycopg://localhost/weekly_status",
+        SKILL_PROVIDER=provider,
+        OPENAI_SKILLS_MODEL="gpt-6-astra",
+        CLAUDE_MODEL="claude-sonnet-5",
+        SYNTHESIZER_SKILL_ID=skill_id,
+        SYNTHESIZER_SKILL_VERSION=skill_version,
+    )
+    week = date(2026, 8, 14)
+    payload = SynthesisInput(week_ending=week.isoformat())
+    output = SynthesisOutput(week_ending=week.isoformat(), markdown="# Report")
+    session = MagicMock()
+
+    with (
+        patch("status.db.get_session") as session_cm,
+        patch.object(synth_module, "build_synthesis_input", return_value=payload),
+        patch.object(synth_module, "run_synthesizer_from_payload", return_value=output),
+        patch.object(synth_module, "get_confirmed_entries_for_week", return_value=[]),
+        patch.object(synth_module, "persist_report_run") as persist_mock,
+    ):
+        session_cm.return_value.__enter__.return_value = session
+        session_cm.return_value.__exit__.return_value = None
+
+        synth_module.synthesize_report(
+            week,
+            dry_run=False,
+            persist=True,
+            settings=settings,
+        )
+
+    assert persist_mock.call_args.kwargs["model"] == expected_model
+    assert persist_mock.call_args.kwargs["prompt_version"] == (
+        f"{skill_id}@{skill_version}"
+    )
