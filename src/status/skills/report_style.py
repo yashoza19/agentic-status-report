@@ -35,11 +35,14 @@ def classify_report_entry(
     project: str,
     epic_name: str | None,
     outcome: str,
+    evidence_labels: dict[str, str] | None = None,
 ) -> tuple[ReportCategory, str]:
     """Return the legacy section and bold display name for a confirmed entry."""
     project_clean = project.strip()
     name_clean = (epic_name or "").strip()
-    text = f"{project_clean} {name_clean} {outcome}".lower()
+    label_values = [label.strip() for label in (evidence_labels or {}).values() if label.strip()]
+    label_text = " ".join(label_values)
+    text = f"{project_clean} {name_clean} {outcome} {label_text}".lower()
 
     if project_clean.lower() in PARTNER_LABS_REPOS or _contains(
         text,
@@ -112,6 +115,6 @@ def classify_report_entry(
     # EET partner engagements are the dominant legacy-report default. Prefer a
     # concise epic label and drop common implementation suffixes only when the
     # source already names a recognizable initiative.
-    report_name = name_clean or project_clean
+    report_name = name_clean or (label_values[0] if len(label_values) == 1 else project_clean)
     report_name = re.sub(r"^Assist\s+", "", report_name, flags=re.IGNORECASE).strip()
     return "Partner Enablement", report_name

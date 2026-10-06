@@ -52,7 +52,10 @@ DRAFTER_INSTRUCTION = (
     "of listing them; use at most two GitHub links in any outcome and keep every supporting "
     "URL in evidence; accept an unambiguous repository_epic_hint when the subjects match; "
     "and omit collector diagnostics about missing Jira links, assignees, reporters, payloads, "
-    "or transition history. A Jira issue with is_assignee=false may supply its parent epic as "
+    "or transition history. Do not report a Backlog Jira issue with no current-week comment, "
+    "transition, or linked Git artifact. Do not combine unrelated no-epic Jira issues into one "
+    "entry merely because they share a project. A Jira issue with is_assignee=false may supply "
+    "its parent epic as "
     "grouping context, but do not cite that issue or claim its status as this person's work."
 )
 
@@ -207,6 +210,35 @@ def build_repository_epic_hints(payload: dict[str, Any]) -> list[dict[str, str]]
     ]
 
 
+def prepare_skill_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Remove Jira rows that are assignment noise rather than weekly activity.
+
+    Jira's `updated` JQL signal can include metadata edits on an otherwise idle
+    backlog item. Keep backlog issues only when the payload contains attributable
+    current-week activity or a Git artifact explicitly links to the issue.
+    """
+    linked_issue_keys = {
+        str(key)
+        for artifact in [
+            *(payload.get("pull_requests") or []),
+            *(payload.get("commits") or []),
+        ]
+        for key in artifact.get("linked_issue_keys") or []
+    }
+    jira_issues: list[dict[str, Any]] = []
+    for issue in payload.get("jira_issues") or []:
+        status = str(issue.get("status") or "").strip().lower()
+        key = str(issue.get("key") or "").strip()
+        has_activity = bool(issue.get("transitions") or issue.get("comments"))
+        if status == "backlog" and not has_activity and key not in linked_issue_keys:
+            continue
+        jira_issues.append(issue)
+
+    prepared = dict(payload)
+    prepared["jira_issues"] = jira_issues
+    return prepared
+
+
 def _pr_outcome(pull_requests: list[dict[str, Any]]) -> str:
     """Build a concise, fully grounded outcome for repository-only PR work."""
     merged = [pr for pr in pull_requests if pr.get("state") == "merged"]
@@ -272,12 +304,12 @@ def merge_hinted_repository_entries(
     for source_index, source in enumerate(entries):
         if source.epic_key is not None:
             continue
-        repo = _entry_repository(source)
-        hint = hints.get(repo or "")
-        if not repo or hint is None:
+        entry_repo = _entry_repository(source)
+        hint = hints.get(entry_repo or "")
+        if not entry_repo or hint is None:
             continue
 
-        pull_requests = pull_requests_by_repo.get(repo, [])
+        pull_requests = pull_requests_by_repo.get(entry_repo, [])
         source_outcome = (
             _pr_outcome(pull_requests)
             if len(pull_requests) > 2
@@ -385,6 +417,16 @@ def draft_quality_issues(
             issues.append(
                 f"{entry.epic_key or entry.project} cites reporter-only Jira work "
                 f"({', '.join(unowned_keys)}) instead of using it only as grouping context"
+            )
+        owned_keys = [
+            key
+            for key in jira_keys_from_evidence(entry.evidence)
+            if jira_issues.get(key, {}).get("is_assignee") is True
+        ]
+        if entry.epic_key is None and entry.epic_name is None and len(owned_keys) > 1:
+            issues.append(
+                f"{entry.project} combines multiple no-epic Jira issues "
+                f"({', '.join(owned_keys)}) without a shared initiative name"
             )
     if any(INTERNAL_DRAFT_LANGUAGE_RE.search(flag) for flag in draft.flags):
         issues.append("flags expose internal Jira or collector diagnostics")
@@ -556,8 +598,8 @@ def run_drafter(payload: dict[str, Any], *, dry_run: bool = False) -> DraftOutpu
     elif not settings.anthropic_api_key:
         return _empty_draft(payload, flags=["ANTHROPIC_API_KEY not configured"])
 
-    skill_payload = dict(payload)
-    repository_epic_hints = build_repository_epic_hints(payload)
+    skill_payload = prepare_skill_payload(payload)
+    repository_epic_hints = build_repository_epic_hints(skill_payload)
     if repository_epic_hints:
         skill_payload["repository_epic_hints"] = repository_epic_hints
 
@@ -583,7 +625,7 @@ def run_drafter(payload: dict[str, Any], *, dry_run: bool = False) -> DraftOutpu
             )
             assert isinstance(result, DraftOutput)
             normalized = _normalize_draft(result, payload)
-            labeled = attach_evidence_labels(normalized, payload)
+            labeled = attach_evidence_labels(normalized, skill_payload)
             processed = postprocess_draft(labeled, skill_payload)
             quality_issues = draft_quality_issues(processed, skill_payload)
             if quality_issues and attempt == 0:

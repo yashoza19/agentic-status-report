@@ -11,6 +11,7 @@ from status.skills.drafter import (
     draft_quality_issues,
     load_fixture,
     postprocess_draft,
+    prepare_skill_payload,
     run_drafter,
     week_ending_from_payload,
 )
@@ -151,6 +152,55 @@ def test_repository_epic_hints_drop_ambiguous_repository() -> None:
     }
 
     assert build_repository_epic_hints(payload) == []
+
+
+def test_prepare_skill_payload_drops_inactive_backlog_assignment_noise() -> None:
+    payload = {
+        "jira_issues": [
+            {
+                "key": "EET-1",
+                "status": "Backlog",
+                "transitions": [],
+                "comments": [],
+            },
+            {
+                "key": "EET-2",
+                "status": "Backlog",
+                "transitions": [],
+                "comments": [{"body": "Investigated this week."}],
+            },
+            {
+                "key": "EET-3",
+                "status": "In Progress",
+                "transitions": [],
+                "comments": [],
+            },
+        ],
+        "pull_requests": [],
+        "commits": [],
+    }
+
+    prepared = prepare_skill_payload(payload)
+
+    assert [issue["key"] for issue in prepared["jira_issues"]] == ["EET-2", "EET-3"]
+    assert len(payload["jira_issues"]) == 3
+
+
+def test_prepare_skill_payload_keeps_backlog_issue_linked_to_git_work() -> None:
+    payload = {
+        "jira_issues": [
+            {
+                "key": "EET-1",
+                "status": "Backlog",
+                "transitions": [],
+                "comments": [],
+            }
+        ],
+        "pull_requests": [{"linked_issue_keys": ["EET-1"]}],
+        "commits": [],
+    }
+
+    assert prepare_skill_payload(payload)["jira_issues"] == payload["jira_issues"]
 
 
 def test_postprocess_merges_separate_repo_work_into_hinted_epic() -> None:
@@ -327,6 +377,34 @@ def test_draft_quality_rejects_reporter_only_jira_evidence() -> None:
     )
 
     assert any("reporter-only Jira work" in issue for issue in issues)
+
+
+def test_draft_quality_rejects_unrelated_no_epic_rollup() -> None:
+    draft = DraftOutput(
+        person="pilot",
+        week_ending="2026-10-02",
+        entries=[
+            DraftEntry(
+                project="EET",
+                epic_key=None,
+                epic_name=None,
+                state="progressing",
+                outcome="Combined two unrelated tasks.",
+                evidence=["EET-5573", "EET-5574"],
+                confidence="low",
+            )
+        ],
+    )
+    payload = {
+        "jira_issues": [
+            {"key": "EET-5573", "is_assignee": True},
+            {"key": "EET-5574", "is_assignee": True},
+        ]
+    }
+
+    issues = draft_quality_issues(draft, payload)
+
+    assert any("combines multiple no-epic Jira issues" in issue for issue in issues)
 
 
 def test_compact_excessive_pr_outcomes_keeps_all_evidence() -> None:

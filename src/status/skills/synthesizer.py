@@ -66,6 +66,22 @@ SUPPORTING_PRS_SUFFIX_RE = re.compile(
     r";\s*supporting\s+PRs?\s*:[^.\n]*\.??",
     re.IGNORECASE,
 )
+ADDITIONAL_EVIDENCE_SUFFIX_RE = re.compile(
+    r"(?:[.;]\s*)?additional\s+evidence\s*:[^\n]*",
+    re.IGNORECASE,
+)
+BACKLOG_ONLY_CLAUSE_RE = re.compile(
+    r";\s*(?:the\s+)?\[[^\]]+\]\([^)]+\)\s+"
+    r"(?:remained|was)\s+in\s+(?:the\s+)?backlog\.?",
+    re.IGNORECASE,
+)
+BACKLOG_ONLY_OUTCOME_RE = re.compile(
+    r"^(?:the\s+)?\[[^\]]+\]\([^)]+\)\s+"
+    r"(?:remained|was)\s+in\s+(?:the\s+)?backlog\.?$",
+    re.IGNORECASE,
+)
+RAW_COMMIT_HASH_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
+REPORT_BULLET_RE = re.compile(r"^(\s*\*\s+\*\*)([^*]+)(\*\*\s+-\s+)(.*)$")
 GAP_COMMENTARY_RES = [
     re.compile(r";\s*this work has no linked Jira tickets despite[^.;]*\.?", re.IGNORECASE),
     re.compile(r";\s*no linked commits or PRs were found this week\.?", re.IGNORECASE),
@@ -92,6 +108,49 @@ def normalize_evidence(evidence: list[str]) -> list[str]:
         else:
             normalized.append(item)
     return normalized
+
+
+def strip_inactive_backlog_clauses(outcome: str) -> str:
+    """Remove a backlog-only tail that does not describe completed weekly work."""
+    cleaned = BACKLOG_ONLY_CLAUSE_RE.sub("", outcome)
+    cleaned = BACKLOG_ONLY_OUTCOME_RE.sub("", cleaned.strip())
+    cleaned = cleaned.strip().rstrip(";")
+    if outcome.rstrip().endswith((".", "!", "?")) and cleaned and not cleaned.endswith(
+        (".", "!", "?")
+    ):
+        cleaned += "."
+    return cleaned
+
+
+def select_visible_evidence(
+    outcome: str,
+    evidence: list[str],
+    *,
+    maximum: int = 2,
+) -> list[str]:
+    """Select display-worthy evidence while leaving the full audit set in Postgres."""
+    normalized: list[str] = []
+    supported_jira_keys = set(jira_keys_from_evidence(evidence))
+    for item in evidence:
+        if JIRA_KEY_RE.match(item):
+            normalized.append(f"https://issues.redhat.com/browse/{item}")
+        elif item not in normalized:
+            normalized.append(item)
+
+    outcome_urls: list[str] = []
+    for _label, url in MARKDOWN_LINK_RE.findall(outcome):
+        jira_match = JIRA_BROWSE_RE.search(url)
+        supported = url in normalized or bool(
+            jira_match and jira_match.group(1) in supported_jira_keys
+        )
+        if supported and url not in outcome_urls:
+            outcome_urls.append(url)
+    if outcome_urls:
+        return outcome_urls[:maximum]
+
+    non_commit = [item for item in normalized if "/commit/" not in item]
+    commit = [item for item in normalized if "/commit/" in item]
+    return [*non_commit, *commit][:maximum]
 
 
 def build_jira_link_phrases(payload: SynthesisInput) -> dict[str, str]:
@@ -161,16 +220,69 @@ def limit_visible_github_links(text: str, *, maximum: int = 2) -> str:
     return "\n".join(lines)
 
 
-def management_quality_issues(markdown: str) -> list[str]:
+def synthesis_input_quality_issues(payload: SynthesisInput) -> list[str]:
+    """Reject generic rollups before spending a hosted synthesizer call."""
+    issues: list[str] = []
+    known_acronym_names = {"DH2I", "FIS", "HYCU", "IBM"}
+    for entry in payload.entries:
+        report_name = entry.report_name.strip()
+        project = entry.project.strip()
+        if (
+            report_name == project
+            and re.fullmatch(r"[A-Z][A-Z0-9]{1,10}", report_name)
+            and report_name.upper() not in known_acronym_names
+        ):
+            issues.append(
+                f"{entry.person_id}:{entry.epic_key or 'unticketed'} has generic "
+                f"report label {report_name!r}; add an initiative or partner mapping"
+            )
+        if len(entry.evidence) > 2:
+            issues.append(
+                f"{entry.person_id}:{entry.epic_key or 'unticketed'} exposes more than "
+                "two evidence links"
+            )
+    return list(dict.fromkeys(issues))
+
+
+def management_quality_issues(
+    markdown: str,
+    payload: SynthesisInput | None = None,
+) -> list[str]:
     """Return management-facing placeholder phrases that require richer source data."""
     issues: list[str] = []
+    if re.search(r"\badditional\s+evidence\b", markdown, re.IGNORECASE):
+        issues.append("additional evidence checklist")
+    if re.search(r"\bimplementation\s+change\b", markdown, re.IGNORECASE):
+        issues.append("generic implementation change label")
+    if RAW_COMMIT_HASH_RE.search(markdown):
+        issues.append("raw commit hash")
+    if re.search(r"\b(?:remained|was)\s+in\s+(?:the\s+)?backlog\b", markdown, re.IGNORECASE):
+        issues.append("backlog-only status")
+
+    allowed_by_category: dict[str, set[str]] = defaultdict(set)
+    if payload:
+        for entry in payload.entries:
+            allowed_by_category[entry.report_category].add(entry.report_name)
+
+    category: str | None = None
     for line in markdown.splitlines():
+        if line.startswith("## "):
+            category = line[3:].strip()
+            continue
         if not line.lstrip().startswith("*"):
             continue
         for pattern in VAGUE_MANAGEMENT_PATTERNS:
             match = pattern.search(line)
             if match:
                 issues.append(match.group(0))
+        label_match = REPORT_BULLET_RE.match(line)
+        if label_match and payload:
+            label = label_match.group(2).strip()
+            allowed = allowed_by_category.get(category or "", set())
+            if label not in allowed:
+                issues.append(
+                    f"unauthorized report label {label!r} in {category or 'unknown section'}"
+                )
     return sorted(set(issues), key=str.lower)
 
 
@@ -182,6 +294,38 @@ def _collapse_punctuation(text: str) -> str:
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = re.sub(r" +(\n)", r"\1", cleaned)
     return cleaned
+
+
+def merge_duplicate_report_bullets(text: str) -> str:
+    """Combine multiple bullets that resolve to the same authoritative label."""
+    category: str | None = None
+    lines: list[str] = []
+    seen: dict[tuple[str, str], int] = {}
+    for line in text.splitlines():
+        if line.startswith("## "):
+            category = line[3:].strip()
+        match = REPORT_BULLET_RE.match(line)
+        if not match:
+            lines.append(line)
+            continue
+
+        label = match.group(2).strip()
+        key = (category or "", label)
+        if key not in seen:
+            seen[key] = len(lines)
+            lines.append(line)
+            continue
+
+        description = match.group(4).strip()
+        if description and not (len(description) > 1 and description[1].isupper()):
+            description = description[0].lower() + description[1:]
+        previous_index = seen[key]
+        previous = lines[previous_index].rstrip().rstrip(".")
+        combined = f"{previous}; {description}"
+        if combined and not combined.endswith((".", "!", "?")):
+            combined += "."
+        lines[previous_index] = combined
+    return "\n".join(lines)
 
 
 def strip_gap_commentary(text: str) -> str:
@@ -247,13 +391,15 @@ def sanitize_report_markdown(markdown: str, payload: SynthesisInput | None = Non
             return f"[PR #{pr_num}]({url})"
         return f"[change]({url})"
 
-    cleaned = PAREN_JIRA_URL_RE.sub(replace_paren_jira, markdown)
+    cleaned = strip_inactive_backlog_clauses(markdown)
+    cleaned = PAREN_JIRA_URL_RE.sub(replace_paren_jira, cleaned)
     cleaned = PAREN_GITHUB_URL_RE.sub(replace_paren_github, cleaned)
     cleaned = RAW_PR_LINK_RE.sub(
         lambda match: f"[{github_phrases.get(match.group(1), 'implementation change')}]"
         f"({match.group(1)})",
         cleaned,
     )
+    cleaned = ADDITIONAL_EVIDENCE_SUFFIX_RE.sub("", cleaned)
     cleaned = limit_visible_github_links(cleaned)
     cleaned = GENERIC_EVIDENCE_SUFFIX_RE.sub("", cleaned)
     cleaned = SUPPORTING_PRS_SUFFIX_RE.sub("", cleaned)
@@ -263,6 +409,7 @@ def sanitize_report_markdown(markdown: str, payload: SynthesisInput | None = Non
     cleaned = restore_markdown_structure(cleaned)
     if payload:
         cleaned = enforce_authoritative_report_labels(cleaned, payload)
+        cleaned = merge_duplicate_report_bullets(cleaned)
     cleaned = re.sub(r"^(## [^\n]+)\n(?!\n)", r"\1\n\n", cleaned, flags=re.MULTILINE)
     cleaned = _collapse_punctuation(cleaned)
     return cleaned.strip() + "\n"
@@ -318,6 +465,9 @@ def build_synthesis_input(
     for entry in entries:
         if entry.state == "quiet":
             continue
+        outcome = strip_inactive_backlog_clauses(entry.outcome)
+        if not outcome:
+            continue
         evidence_labels = merge_evidence_labels(
             (entry.extra or {}).get("evidence_labels"),
             entry.evidence or [],
@@ -328,8 +478,16 @@ def build_synthesis_input(
         report_category, report_name = classify_report_entry(
             project=entry.project,
             epic_name=entry.epic_name_snapshot,
-            outcome=entry.outcome,
+            outcome=outcome,
+            evidence_labels=evidence_labels,
         )
+        visible_evidence = select_visible_evidence(outcome, entry.evidence or [])
+        visible_jira_keys = set(jira_keys_from_evidence(visible_evidence))
+        visible_labels = {
+            key: label
+            for key, label in evidence_labels.items()
+            if key in visible_jira_keys
+        }
         synthesis_entries.append(
             SynthesisEntry(
                 person_id=entry.person_id,
@@ -338,11 +496,11 @@ def build_synthesis_input(
                 epic_key=entry.epic_key,
                 epic_name=entry.epic_name_snapshot,
                 state=entry.state,  # type: ignore[arg-type]
-                outcome=entry.outcome,
+                outcome=outcome,
                 blocker=entry.blocker,
                 ask=entry.ask,
-                evidence=normalize_evidence(entry.evidence or []),
-                evidence_labels=evidence_labels,
+                evidence=visible_evidence,
+                evidence_labels=visible_labels,
                 report_category=report_category,
                 report_name=report_name,
             )
@@ -482,6 +640,13 @@ def run_synthesizer_from_payload(
     if dry_run:
         return _dry_run_output(payload, week_ending)
 
+    input_issues = synthesis_input_quality_issues(payload)
+    if input_issues:
+        raise RuntimeError(
+            "management report input failed quality review: "
+            f"{'; '.join(input_issues)}; edit and reconfirm the affected draft"
+        )
+
     if not settings.synthesizer_skill_id:
         return _dry_run_output(
             payload,
@@ -505,7 +670,7 @@ def run_synthesizer_from_payload(
     )
     assert isinstance(result, SynthesisOutput)
     markdown = sanitize_report_markdown(result.markdown, payload)
-    quality_issues = management_quality_issues(markdown)
+    quality_issues = management_quality_issues(markdown, payload)
     if quality_issues:
         phrases = ", ".join(repr(issue) for issue in quality_issues)
         raise RuntimeError(

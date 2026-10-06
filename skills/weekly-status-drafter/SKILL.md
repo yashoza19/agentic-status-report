@@ -84,9 +84,12 @@ Match them by scanning for ticket keys in PR titles, branch names, and commit
 messages. A draft that lists the same work three times under different labels is
 the fastest way to lose the reviewer's trust.
 
-Tickets with no epic go into a single entry per project, with
-`epic_key: null` and `needs_human: true` — the human usually knows which
-initiative it belonged to and can say so in one word.
+Tickets with no epic must still be grouped by a coherent initiative or subject,
+not placed into one catch-all entry merely because they share a Jira project.
+When multiple tickets clearly share an initiative, put that human-readable
+initiative in `epic_name` even if `epic_key` is null. Otherwise create separate
+entries with `epic_key: null`, `needs_human: true`, and a specific mapping
+question.
 
 Pull requests without a linked Jira ticket are still reportable work. Before
 creating an unticketed repository entry, consult `repository_epic_hints`. These
@@ -120,6 +123,9 @@ Only report tickets **this person worked on this week**. Use `is_assignee`,
 `transitions`, `comments`, linked PRs, and commits — not every sibling ticket
 under the same epic.
 
+- Omit a Backlog ticket when it has no current-week comment, transition, linked
+  pull request, or linked commit. Assignment or an `updated` timestamp alone is
+  not a management-reportable outcome.
 - If a ticket is in `jira_issues` but `is_assignee` is false and the person had
   no transition or comment on it, do **not** cite it in `evidence` or `outcome`.
 - Never summarize someone else's assignee work under this person's draft (e.g. do

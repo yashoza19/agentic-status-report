@@ -49,3 +49,14 @@ def test_partner_integration_uses_concise_legacy_name() -> None:
         epic_name="[Omnissa] Integration of Horizon with OpenShift Virtualization",
         outcome="Reviewed the scalability plan.",
     ) == ("Partner Enablement", "Omnissa")
+
+
+def test_partner_labs_evidence_label_prevents_generic_jira_project_name() -> None:
+    assert classify_report_entry(
+        project="EET",
+        epic_name=None,
+        outcome="The intake-column alignment fix was in progress.",
+        evidence_labels={
+            "EET-5573": "partner Labs Maintenance: Resolve column issue with intake form"
+        },
+    ) == ("Partner Enablement", "Partner Labs")
