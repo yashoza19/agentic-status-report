@@ -30,7 +30,10 @@ from status.skills.synthesizer import (
     normalize_evidence,
     restore_markdown_structure,
     sanitize_report_markdown,
+    select_visible_evidence,
     strip_gap_commentary,
+    strip_inactive_backlog_clauses,
+    synthesis_input_quality_issues,
 )
 
 
@@ -102,6 +105,114 @@ def test_normalize_evidence_adds_jira_urls() -> None:
         "https://issues.redhat.com/browse/EET-5500",
         "https://github.com/org/repo/pull/1",
     ]
+
+
+def test_select_visible_evidence_prefers_links_used_in_outcome() -> None:
+    preferred = "https://github.com/opdev/agentic-status-report/pull/45"
+    evidence = [
+        preferred,
+        "https://github.com/opdev/agentic-status-report/pull/43",
+        "https://github.com/opdev/agentic-status-report/commit/d065435",
+    ]
+
+    selected = select_visible_evidence(
+        f"Improved [manual status entry]({preferred}).",
+        evidence,
+    )
+
+    assert selected == [preferred]
+
+
+def test_strip_inactive_backlog_clause_keeps_active_work() -> None:
+    outcome = (
+        "The [intake-column alignment fix](https://redhat.atlassian.net/browse/EET-5573) "
+        "was in progress; the [duplicate request-ID bug]"
+        "(https://redhat.atlassian.net/browse/EET-5574) remained in backlog."
+    )
+
+    cleaned = strip_inactive_backlog_clauses(outcome)
+
+    assert "intake-column alignment" in cleaned
+    assert "duplicate request-ID" not in cleaned
+
+
+def test_strip_inactive_backlog_clause_drops_standalone_backlog_item() -> None:
+    outcome = (
+        "The [duplicate request-ID bug]"
+        "(https://redhat.atlassian.net/browse/EET-5574) remained in backlog."
+    )
+
+    assert strip_inactive_backlog_clauses(outcome) == ""
+
+
+def test_build_synthesis_input_limits_evidence_and_maps_partner_labs() -> None:
+    session = MagicMock()
+    week = date(2026, 10, 2)
+    person = Person(person_id="yoza", display_name="Yash Oza")
+    pipeline_entry = StatusEntry(
+        entry_id=uuid4(),
+        week_ending=week,
+        person_id="yoza",
+        project="EET",
+        epic_key="EET-5519",
+        epic_name_snapshot="Agentic Weekly Status Pipeline",
+        state="progressing",
+        outcome=(
+            "Merged [manual-entry changes]"
+            "(https://github.com/opdev/agentic-status-report/pull/45) and "
+            "[Slack authorization fixes]"
+            "(https://github.com/opdev/agentic-status-report/pull/42)."
+        ),
+        source="drafted",
+        evidence=[
+            "https://github.com/opdev/agentic-status-report/pull/45",
+            "https://github.com/opdev/agentic-status-report/pull/43",
+            "https://github.com/opdev/agentic-status-report/pull/42",
+            "https://github.com/opdev/agentic-status-report/commit/d065435",
+        ],
+        confirmed_at=datetime.now(UTC),
+    )
+    jira_entry = StatusEntry(
+        entry_id=uuid4(),
+        week_ending=week,
+        person_id="yoza",
+        project="EET",
+        state="progressing",
+        outcome=(
+            "The [intake-column alignment fix]"
+            "(https://redhat.atlassian.net/browse/EET-5573) was in progress; "
+            "the [duplicate request-ID bug]"
+            "(https://redhat.atlassian.net/browse/EET-5574) remained in backlog."
+        ),
+        source="drafted",
+        evidence=[
+            "https://redhat.atlassian.net/browse/EET-5573",
+            "https://redhat.atlassian.net/browse/EET-5574",
+        ],
+        extra={
+            "evidence_labels": {
+                "EET-5573": "partner Labs Maintenance: Resolve column issue with intake form",
+                "EET-5574": "duplicate requestid bug",
+            }
+        },
+        confirmed_at=datetime.now(UTC),
+    )
+
+    with (
+        patch(
+            "status.skills.synthesizer.get_confirmed_entries_for_week",
+            return_value=[pipeline_entry, jira_entry],
+        ),
+        patch("status.skills.synthesizer.get_participation_for_week", return_value=[]),
+        patch("status.skills.synthesizer.get_person", return_value=person),
+    ):
+        payload = build_synthesis_input(session, week)
+
+    assert {entry.report_name for entry in payload.entries} == {"Partner Labs"}
+    assert len(payload.entries[0].evidence) == 2
+    assert all("/commit/" not in item for item in payload.entries[0].evidence)
+    assert len(payload.entries[1].evidence) == 1
+    assert "EET-5574" not in payload.entries[1].outcome
 
 
 def test_build_dry_run_markdown_includes_confirmed_entries() -> None:
@@ -300,6 +411,56 @@ def test_management_quality_issues_rejects_ordinal_placeholders() -> None:
     ]
 
 
+def test_management_quality_rejects_evidence_dump_and_wrong_label() -> None:
+    payload = SynthesisInput(
+        week_ending="2026-10-02",
+        entries=[
+            SynthesisEntry(
+                person_id="yoza",
+                display_name="Yash Oza",
+                project="EET",
+                epic_key="EET-5519",
+                epic_name="Agentic Weekly Status Pipeline",
+                state="progressing",
+                outcome="Improved weekly status automation.",
+                report_category="Partner Enablement",
+                report_name="Partner Labs",
+            )
+        ],
+    )
+    markdown = (
+        "## Partner Enablement\n\n"
+        "* **Agentic Weekly Status Pipeline** - Improved automation; additional evidence: "
+        "implementation change and commit d065435."
+    )
+
+    issues = management_quality_issues(markdown, payload)
+
+    assert "additional evidence checklist" in issues
+    assert "generic implementation change label" in issues
+    assert "raw commit hash" in issues
+    assert any("unauthorized report label" in issue for issue in issues)
+
+
+def test_synthesis_input_quality_rejects_generic_jira_project_label() -> None:
+    payload = SynthesisInput(
+        week_ending="2026-10-02",
+        entries=[
+            SynthesisEntry(
+                person_id="yoza",
+                display_name="Yash Oza",
+                project="EET",
+                state="progressing",
+                outcome="Worked on an unclassified task.",
+                report_category="Partner Enablement",
+                report_name="EET",
+            )
+        ],
+    )
+
+    assert any("generic report label" in issue for issue in synthesis_input_quality_issues(payload))
+
+
 def test_sanitize_report_restores_authoritative_name_and_drops_evidence_checklist() -> None:
     payload = SynthesisInput(
         week_ending="2026-09-25",
@@ -331,6 +492,51 @@ def test_sanitize_report_restores_authoritative_name_and_drops_evidence_checklis
     assert "Agentic Weekly Status Pipeline**" not in cleaned
     assert "implementation change" not in cleaned
     assert "supporting PRs" not in cleaned
+
+
+def test_sanitize_report_repairs_october_regression() -> None:
+    payload = SynthesisInput(
+        week_ending="2026-10-02",
+        entries=[
+            SynthesisEntry(
+                person_id="yoza",
+                display_name="Yash Oza",
+                project="EET",
+                epic_key="EET-5519",
+                epic_name="Agentic Weekly Status Pipeline",
+                state="progressing",
+                outcome="Improved weekly status automation.",
+                report_category="Partner Enablement",
+                report_name="Partner Labs",
+            ),
+            SynthesisEntry(
+                person_id="yoza",
+                display_name="Yash Oza",
+                project="EET",
+                state="progressing",
+                outcome="Continued intake-column alignment.",
+                report_category="Partner Enablement",
+                report_name="Partner Labs",
+            ),
+        ],
+    )
+    raw = (
+        "# Oct 2, 2026\n\n## Partner Enablement\n\n"
+        "* **Agentic Weekly Status Pipeline** - Improved status review; additional evidence: "
+        "implementation change, commit d065435, and commit 904d909.\n"
+        "* **EET** - The [intake-column alignment fix]"
+        "(https://redhat.atlassian.net/browse/EET-5573) was in progress; the "
+        "[duplicate request-ID bug](https://redhat.atlassian.net/browse/EET-5574) "
+        "remained in backlog."
+    )
+
+    cleaned = sanitize_report_markdown(raw, payload)
+
+    assert cleaned.count("* **Partner Labs**") == 1
+    assert "additional evidence" not in cleaned.lower()
+    assert "implementation change" not in cleaned.lower()
+    assert "d065435" not in cleaned
+    assert "duplicate request-ID" not in cleaned
 
 
 def test_sanitize_report_markdown_strips_gap_commentary() -> None:
